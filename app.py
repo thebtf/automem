@@ -3872,5 +3872,6 @@ if __name__ == "__main__":
     init_embedding_pipeline()
     init_consolidation_scheduler()
     init_sync_worker()
-    # Use :: for IPv6 dual-stack (Railway internal networking uses IPv6)
-    app.run(host="::", port=port, debug=False)
+    # Use :: for IPv6 dual-stack (Railway), 0.0.0.0 for IPv4-only (Windows/local)
+    host = os.environ.get("FLASK_HOST", "::")
+    app.run(host=host, port=port, debug=False)
