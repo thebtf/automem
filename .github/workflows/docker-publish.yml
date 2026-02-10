@@ -61,7 +61,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64  # Multi-arch support
+          platforms: linux/amd64  # AMD64 only (Unraid x86_64)
 
       - name: Image digest
         run: echo "Image published with digest ${{ steps.build-and-push.outputs.digest }}"
