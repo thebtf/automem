@@ -1186,14 +1186,20 @@ def init_openai() -> None:
         logger.info("OpenAI package not installed (used for memory type classification)")
         return
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    # Use separate classification credentials if provided, otherwise fall back to OPENAI_*
+    api_key = os.getenv("CLASSIFICATION_API_KEY") or os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("CLASSIFICATION_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+
     if not api_key:
         logger.info("OpenAI API key not provided (used for memory type classification)")
         return
 
     try:
-        state.openai_client = OpenAI(api_key=api_key)
-        logger.info("OpenAI client initialized for memory type classification")
+        state.openai_client = OpenAI(api_key=api_key, base_url=base_url)
+        logger.info(
+            "OpenAI client initialized for memory type classification (base_url=%s)",
+            base_url or "default"
+        )
     except Exception:
         logger.exception("Failed to initialize OpenAI client")
         state.openai_client = None
