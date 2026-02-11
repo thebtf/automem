@@ -24,6 +24,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         dimension: int = 768,
         timeout: float = 30.0,
         max_retries: int = 2,
+        base_url: str | None = None,
     ):
         """Initialize OpenAI embedding provider.
 
@@ -33,19 +34,26 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             dimension: Number of dimensions for embeddings
             timeout: Request timeout in seconds (default 30)
             max_retries: Maximum number of retries (default 2)
+            base_url: Custom API endpoint (e.g., http://localhost:8000/v1). If None, uses OpenAI default.
 
         Raises:
             Exception: If OpenAI client initialization fails
         """
-        self.client = OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
+        self.client = OpenAI(
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            base_url=base_url,
+        )
         self.model = model
         self._dimension = dimension
         logger.info(
-            "OpenAI embedding provider initialized (model=%s, dimensions=%d, timeout=%.1fs, retries=%d)",
+            "OpenAI embedding provider initialized (model=%s, dimensions=%d, timeout=%.1fs, retries=%d, base_url=%s)",
             model,
             dimension,
             timeout,
             max_retries,
+            base_url or "default",
         )
 
     def generate_embedding(self, text: str) -> List[float]:
