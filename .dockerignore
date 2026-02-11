@@ -54,5 +54,6 @@ dist
 build
 *.egg-info
 
-# Scripts
-scripts
+# Scripts (exclude health monitor, keep backup/restore)
+scripts/Dockerfile.health-monitor
+scripts/health_monitor.py
