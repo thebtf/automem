@@ -1260,7 +1260,16 @@ def init_embedding_provider() -> None:
         if not api_key:
             raise RuntimeError("EMBEDDING_PROVIDER=openai but OPENAI_API_KEY not set")
         try:
+<<<<<<< HEAD
             state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
+=======
+            from automem.embedding.openai import OpenAIEmbeddingProvider
+
+            base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL")
+            state.embedding_provider = OpenAIEmbeddingProvider(
+                api_key=api_key, model=EMBEDDING_MODEL, dimension=vector_size, base_url=base_url
+            )
+>>>>>>> 2b621ab (feat: add OPENAI_BASE_URL support for custom endpoints)
             logger.info("Embedding provider: %s", state.embedding_provider.provider_name())
             return
         except Exception as e:
@@ -1312,7 +1321,16 @@ def init_embedding_provider() -> None:
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
+<<<<<<< HEAD
                 state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
+=======
+                from automem.embedding.openai import OpenAIEmbeddingProvider
+
+                base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL")
+                state.embedding_provider = OpenAIEmbeddingProvider(
+                    api_key=api_key, model=EMBEDDING_MODEL, dimension=vector_size, base_url=base_url
+                )
+>>>>>>> 2b621ab (feat: add OPENAI_BASE_URL support for custom endpoints)
                 logger.info(
                     "Embedding provider (auto-selected): %s",
                     state.embedding_provider.provider_name(),
