@@ -2,6 +2,20 @@
 
 All notable changes to AutoMem will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+* **CRITICAL**: Fix timing attack vulnerabilities in API/admin token comparison (C-2, C-3)
+* **CRITICAL**: Remove client-supplied memory IDs to prevent overwrite attacks (C-4)
+* **CRITICAL**: Remove internal exception details from API error responses (C-5, M-6)
+* **CRITICAL**: Add .env.* pattern to gitignore to prevent secret leakage (C-1)
+* Update requests dependency to >=2.32.3 (CVE-2024-35195 fix)
+
+### Deprecated
+
+* **Authentication**: Query parameter token authentication (?api_key=) is deprecated and will be removed in next major version. Use `Authorization: Bearer` or `X-API-Key` header instead. Query parameters are logged in access logs, browser history, and proxy logs.
+
 ## [0.11.0](https://github.com/verygoodplugins/automem/compare/v0.10.1...v0.11.0) (2026-02-16)
 
 
