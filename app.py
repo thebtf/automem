@@ -1139,6 +1139,12 @@ def _extract_api_token() -> Optional[str]:
 
     api_key_param = request.args.get("api_key")
     if api_key_param:
+        # DEPRECATED: Query parameter auth will be removed in next major version
+        # Tokens in query params are logged in access logs, browser history, proxy logs
+        logger.warning(
+            "DEPRECATED: Token via query parameter is deprecated and will be removed. "
+            "Use 'Authorization: Bearer' or 'X-API-Key' header instead."
+        )
         return api_key_param.strip()
 
     return None
