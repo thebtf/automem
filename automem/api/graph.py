@@ -200,8 +200,8 @@ def create_graph_blueprint(
             )
 
         except Exception as e:
-            logger.error(f"graph/snapshot failed: {e}")
-            abort(500, description=str(e))
+            logger.exception("graph/snapshot failed")
+            abort(500, description="Internal server error")
 
     @bp.route("/neighbors/<memory_id>", methods=["GET"])
     def neighbors(memory_id: str) -> Any:
@@ -448,8 +448,8 @@ def create_graph_blueprint(
             )
 
         except Exception as e:
-            logger.error(f"graph/stats failed: {e}")
-            abort(500, description=str(e))
+            logger.exception("graph/stats failed")
+            abort(500, description="Internal server error")
 
     @bp.route("/types", methods=["GET"])
     def types() -> Any:
