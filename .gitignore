@@ -1,6 +1,10 @@
 .claude/settings.local.json
 *.code-workspace
+
+# Environment files - NEVER commit secrets
 .env
+.env.*
+
 **/__pycache__
 automation_hub_dashboard/.env
 automation_hub_dashboard/.venv/
@@ -27,3 +31,6 @@ tests/benchmarks/locomo/
 node_modules/
 # Experiment results (promote notable runs to tests/benchmarks/results/)
 /tests/benchmarks/experiments/results_*/
+
+# Windows artifacts
+nul

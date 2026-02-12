@@ -9,6 +9,7 @@ is unavailable.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -1138,6 +1139,12 @@ def _extract_api_token() -> Optional[str]:
 
     api_key_param = request.args.get("api_key")
     if api_key_param:
+        # DEPRECATED: Query parameter auth will be removed in next major version
+        # Tokens in query params are logged in access logs, browser history, proxy logs
+        logger.warning(
+            "DEPRECATED: Token via query parameter is deprecated and will be removed. "
+            "Use 'Authorization: Bearer' or 'X-API-Key' header instead."
+        )
         return api_key_param.strip()
 
     return None
@@ -1157,7 +1164,8 @@ def _require_admin_token() -> None:
         or request.args.get("admin_token")
     )
 
-    if provided != ADMIN_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(provided or "", ADMIN_TOKEN or ""):
         abort(401, description="Admin authorization required")
 
 
@@ -1172,7 +1180,8 @@ def require_api_token() -> None:
         return
 
     token = _extract_api_token()
-    if token != API_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token or "", API_TOKEN or ""):
         abort(401, description="Unauthorized")
 
 
@@ -2585,7 +2594,10 @@ def store_memory() -> Any:
     tags_lower = [t.strip().lower() for t in tags if isinstance(t, str) and t.strip()]
     tag_prefixes = _compute_tag_prefixes(tags_lower)
     importance = _coerce_importance(payload.get("importance"))
-    memory_id = payload.get("id") or str(uuid.uuid4())
+
+    # SECURITY: Always generate memory ID server-side to prevent client-supplied ID attacks
+    # (overwriting existing memories). Client-supplied IDs removed per C-4 security review.
+    memory_id = str(uuid.uuid4())
 
     metadata_raw = payload.get("metadata")
     if metadata_raw is None:
@@ -3207,8 +3219,8 @@ def consolidate_memories() -> Any:
 
         return jsonify({"status": "success", "consolidation": results}), 200
     except Exception as e:
-        logger.error(f"Consolidation failed: {e}")
-        return jsonify({"error": "Consolidation failed", "details": str(e)}), 500
+        logger.exception("Consolidation failed")
+        return jsonify({"error": "Consolidation failed"}), 500
 
 
 @consolidation_bp.route("/consolidate/status", methods=["GET"])
@@ -3239,8 +3251,8 @@ def consolidation_status() -> Any:
             200,
         )
     except Exception as e:
-        logger.error(f"Failed to get consolidation status: {e}")
-        return jsonify({"error": "Failed to get status", "details": str(e)}), 500
+        logger.exception("Failed to get consolidation status")
+        return jsonify({"error": "Failed to get status"}), 500
 
 
 @recall_bp.route("/startup-recall", methods=["GET"])
@@ -3306,8 +3318,8 @@ def startup_recall() -> Any:
         return jsonify(response), 200
 
     except Exception as e:
-        logger.error(f"Startup recall failed: {e}")
-        return jsonify({"error": "Startup recall failed", "details": str(e)}), 500
+        logger.exception("Startup recall failed")
+        return jsonify({"error": "Startup recall failed"}), 500
 
 
 @recall_bp.route("/analyze", methods=["GET"])
