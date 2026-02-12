@@ -1,6 +1,10 @@
 .claude/settings.local.json
 *.code-workspace
+
+# Environment files - NEVER commit secrets
 .env
+.env.*
+
 **/__pycache__
 automation_hub_dashboard/.env
 automation_hub_dashboard/.venv/
@@ -32,3 +36,5 @@ node_modules/
 /lab/snapshots/
 /lab/results/
 /lab/test_sets/
+# Windows artifacts
+nul
