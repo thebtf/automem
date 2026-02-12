@@ -9,6 +9,7 @@ is unavailable.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -1157,7 +1158,8 @@ def _require_admin_token() -> None:
         or request.args.get("admin_token")
     )
 
-    if provided != ADMIN_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(provided or "", ADMIN_TOKEN or ""):
         abort(401, description="Admin authorization required")
 
 
@@ -1172,7 +1174,8 @@ def require_api_token() -> None:
         return
 
     token = _extract_api_token()
-    if token != API_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token or "", API_TOKEN or ""):
         abort(401, description="Unauthorized")
 
 
