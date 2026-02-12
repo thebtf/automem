@@ -1607,8 +1607,8 @@ def create_recall_blueprint(
             }
             return jsonify(response), 200
         except Exception as e:
-            logger.error(f"Startup recall failed: {e}")
-            return jsonify({"error": "Startup recall failed", "details": str(e)}), 500
+            logger.exception("Startup recall failed")
+            return jsonify({"error": "Startup recall failed"}), 500
 
     @bp.route("/analyze", methods=["GET"])
     def analyze_memories() -> Any:
@@ -1758,8 +1758,8 @@ def create_recall_blueprint(
             analytics["confidence_distribution"] = conf_dist
             return jsonify({"status": "success", "analytics": analytics, "elapsed_ms": 0}), 200
         except Exception as e:
-            logger.error(f"Analyze failed: {e}")
-            return jsonify({"error": "Analyze failed", "details": str(e)}), 500
+            logger.exception("Analyze failed")
+            return jsonify({"error": "Analyze failed"}), 500
 
     @bp.route("/memories/<memory_id>/related", methods=["GET"])
     def get_related_memories(memory_id: str) -> Any:

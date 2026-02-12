@@ -3213,8 +3213,8 @@ def consolidate_memories() -> Any:
 
         return jsonify({"status": "success", "consolidation": results}), 200
     except Exception as e:
-        logger.error(f"Consolidation failed: {e}")
-        return jsonify({"error": "Consolidation failed", "details": str(e)}), 500
+        logger.exception("Consolidation failed")
+        return jsonify({"error": "Consolidation failed"}), 500
 
 
 @consolidation_bp.route("/consolidate/status", methods=["GET"])
@@ -3245,8 +3245,8 @@ def consolidation_status() -> Any:
             200,
         )
     except Exception as e:
-        logger.error(f"Failed to get consolidation status: {e}")
-        return jsonify({"error": "Failed to get status", "details": str(e)}), 500
+        logger.exception("Failed to get consolidation status")
+        return jsonify({"error": "Failed to get status"}), 500
 
 
 @recall_bp.route("/startup-recall", methods=["GET"])
@@ -3312,8 +3312,8 @@ def startup_recall() -> Any:
         return jsonify(response), 200
 
     except Exception as e:
-        logger.error(f"Startup recall failed: {e}")
-        return jsonify({"error": "Startup recall failed", "details": str(e)}), 500
+        logger.exception("Startup recall failed")
+        return jsonify({"error": "Startup recall failed"}), 500
 
 
 @recall_bp.route("/analyze", methods=["GET"])
