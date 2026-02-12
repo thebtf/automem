@@ -2625,7 +2625,10 @@ def store_memory() -> Any:
     tags_lower = [t.strip().lower() for t in tags if isinstance(t, str) and t.strip()]
     tag_prefixes = _compute_tag_prefixes(tags_lower)
     importance = _coerce_importance(payload.get("importance"))
-    memory_id = payload.get("id") or str(uuid.uuid4())
+
+    # SECURITY: Always generate memory ID server-side to prevent client-supplied ID attacks
+    # (overwriting existing memories). Client-supplied IDs removed per C-4 security review.
+    memory_id = str(uuid.uuid4())
 
     metadata_raw = payload.get("metadata")
     if metadata_raw is None:
