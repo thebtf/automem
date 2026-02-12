@@ -1176,6 +1176,20 @@ def require_api_token() -> None:
         abort(401, description="Unauthorized")
 
 
+def _get_base_url_for_logging(url: str | None) -> str:
+    """Sanitize URL for logging by removing userinfo and query params."""
+    if not url:
+        return "default"
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # Return only scheme://host:port
+        sanitized = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "custom"
+        return sanitized
+    except Exception:
+        return "custom"
+
+
 def init_openai() -> None:
     """Initialize OpenAI client for memory type classification (not embeddings)."""
     if state.openai_client is not None:
@@ -1198,11 +1212,20 @@ def init_openai() -> None:
         state.openai_client = OpenAI(api_key=api_key, base_url=base_url)
         logger.info(
             "OpenAI client initialized for memory type classification (base_url=%s)",
-            base_url or "default"
+            _get_base_url_for_logging(base_url)
         )
     except Exception:
         logger.exception("Failed to initialize OpenAI client")
         state.openai_client = None
+
+
+def _create_openai_embedding_provider(api_key: str, vector_size: int) -> "OpenAIEmbeddingProvider":
+    """Create OpenAI embedding provider with consistent configuration."""
+    from automem.embedding.openai import OpenAIEmbeddingProvider
+    base_url = os.getenv("OPENAI_BASE_URL")
+    return OpenAIEmbeddingProvider(
+        api_key=api_key, model=EMBEDDING_MODEL, dimension=vector_size, base_url=base_url
+    )
 
 
 def init_embedding_provider() -> None:
@@ -1254,16 +1277,8 @@ def init_embedding_provider() -> None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("EMBEDDING_PROVIDER=openai but OPENAI_API_KEY not set")
-        openai_base_url = (os.getenv("OPENAI_BASE_URL") or "").strip() or None
         try:
-            from automem.embedding.openai import OpenAIEmbeddingProvider
-
-            state.embedding_provider = OpenAIEmbeddingProvider(
-                api_key=api_key,
-                model=EMBEDDING_MODEL,
-                dimension=vector_size,
-                base_url=openai_base_url,
-            )
+            state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
             logger.info("Embedding provider: %s", state.embedding_provider.provider_name())
             return
         except Exception as e:
@@ -1333,15 +1348,7 @@ def init_embedding_provider() -> None:
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
-                from automem.embedding.openai import OpenAIEmbeddingProvider
-
-                openai_base_url = (os.getenv("OPENAI_BASE_URL") or "").strip() or None
-                state.embedding_provider = OpenAIEmbeddingProvider(
-                    api_key=api_key,
-                    model=EMBEDDING_MODEL,
-                    dimension=vector_size,
-                    base_url=openai_base_url,
-                )
+                state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
                 logger.info(
                     "Embedding provider (auto-selected): %s",
                     state.embedding_provider.provider_name(),
