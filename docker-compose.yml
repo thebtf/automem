@@ -37,6 +37,7 @@ services:
       FLASK_ENV: development
       FLASK_DEBUG: "1"
       PORT: 8001
+      PYTHONPATH: /app  # Required for scripts to import automem module
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: 6379
       FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:-}
