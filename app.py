@@ -824,7 +824,22 @@ Return JSON with: {"type": "<type>", "confidence": <0.0-1.0>}"""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": content[:1000]},  # Limit to 1000 chars
                 ],
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "classification",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string"},
+                                "confidence": {"type": "number"},
+                            },
+                            "required": ["type", "confidence"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
                 **extra_params,
             )
 
