@@ -669,8 +669,17 @@ function formatRecallSpeech(records, { limit = 2 } = {}) {
         session.lastAccess = Date.now();
         transport = session.transport;
       }
-      // New session (POST initialize request only)
-      else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+      // New session (POST initialize request only).
+      // Also handles stale/swept session IDs: if the client sends a session ID that no
+      // longer exists in our map (swept after TTL expiry) but is attempting re-initialization,
+      // allow the new session to be created. The old session was already cleaned up by the
+      // sweeper, so there is no conflict.
+      else if (req.method === 'POST' && isInitializeRequest(req.body)) {
+        if (sessionId) {
+          // Client is re-initializing with a stale session ID. Log for observability so we
+          // can monitor how frequently session loss occurs in production.
+          console.warn(`[MCP] Stale session ID received during initialize — session was likely swept (TTL expired). Stale ID: ${sessionId}. Creating new session.`);
+        }
         const endpoint = process.env.AUTOMEM_API_URL || process.env.AUTOMEM_ENDPOINT || 'http://127.0.0.1:8001';
         const token = getAuthToken(req) || process.env.AUTOMEM_API_TOKEN;
         if (!token) {
