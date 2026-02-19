@@ -12,6 +12,10 @@ All notable changes to AutoMem will be documented in this file.
 * **CRITICAL**: Add .env.* pattern to gitignore to prevent secret leakage (C-1)
 * Update requests dependency to >=2.32.3 (CVE-2024-35195 fix)
 
+### Bug Fixes
+
+* **mcp**: Switch Streamable HTTP transport to stateless mode, eliminating session expiry failures. Claude Code has open bugs (#9608, #17412) where it does not auto-reinitialize sessions after TTL expiry. Stateless mode removes the TTL sweep entirely — each request creates an independent transport+server pair with no session state to expire.
+
 ### Deprecated
 
 * **Authentication**: Query parameter token authentication (?api_key=) is deprecated and will be removed in next major version. Use `Authorization: Bearer` or `X-API-Key` header instead. Query parameters are logged in access logs, browser history, and proxy logs.
