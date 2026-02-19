@@ -1380,6 +1380,15 @@ def test_graph_snapshot_valid_limit_still_works(client, mock_state, auth_headers
     assert "edges" in data
 
 
+def test_graph_snapshot_invalid_min_importance(client, mock_state, auth_headers):
+    """GET /graph/snapshot?min_importance=abc must return 400, not 500."""
+    response = client.get("/graph/snapshot?min_importance=abc", headers=auth_headers)
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "min_importance" in data.get("description", data.get("message", "")).lower()
+
+
 @pytest.mark.usefixtures("mock_state")
 def test_recall_with_tags_and_exclude_tags_combined(client, auth_headers):
     """Test combining tags filter with exclude_tags."""

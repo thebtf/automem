@@ -74,7 +74,10 @@ def create_graph_blueprint(
             limit = min(int(request.args.get("limit", 500)), 2000)
         except ValueError:
             abort(400, description="'limit' must be a valid integer")
-        min_importance = float(request.args.get("min_importance", 0.0))
+        try:
+            min_importance = float(request.args.get("min_importance", 0.0))
+        except ValueError:
+            abort(400, description="'min_importance' must be a valid number")
         types_filter = (
             request.args.get("types", "").split(",") if request.args.get("types") else None
         )
