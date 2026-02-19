@@ -833,7 +833,7 @@ class MemoryConsolidator:
             results["success"] = True
 
         except Exception as e:
-            logger.error(f"Consolidation error: {e}")
+            logger.error("Consolidation error: %s", e)
             results["error"] = str(e)
             results["success"] = False
 
@@ -988,7 +988,7 @@ class ConsolidationScheduler:
             tasks_to_run = [t for t in self.schedules if self.should_run(t)]
 
         for task_type in tasks_to_run:
-            logger.info(f"Running scheduled {task_type} consolidation...")
+            logger.info("Running scheduled %s consolidation...", task_type)
 
             # Run with appropriate mode
             if task_type == "decay":

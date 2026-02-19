@@ -70,8 +70,14 @@ def create_graph_blueprint(
         """
         query_start = time.perf_counter()
 
-        limit = min(int(request.args.get("limit", 500)), 2000)
-        min_importance = float(request.args.get("min_importance", 0.0))
+        try:
+            limit = min(int(request.args.get("limit", 500)), 2000)
+        except ValueError:
+            abort(400, description="'limit' must be a valid integer")
+        try:
+            min_importance = float(request.args.get("min_importance", 0.0))
+        except ValueError:
+            abort(400, description="'min_importance' must be a valid number")
         types_filter = (
             request.args.get("types", "").split(",") if request.args.get("types") else None
         )
@@ -177,7 +183,7 @@ def create_graph_blueprint(
             )
 
             elapsed = time.perf_counter() - query_start
-            logger.info(f"graph/snapshot: {len(nodes)} nodes, {len(edges)} edges in {elapsed:.3f}s")
+            logger.info("graph/snapshot: %s nodes, %s edges in %.3fs", len(nodes), len(edges), elapsed)
 
             return jsonify(
                 {
@@ -200,8 +206,8 @@ def create_graph_blueprint(
             )
 
         except Exception as e:
-            logger.error(f"graph/snapshot failed: {e}")
-            abort(500, description=str(e))
+            logger.exception("graph/snapshot failed")
+            abort(500, description="Internal server error")
 
     @bp.route("/neighbors/<memory_id>", methods=["GET"])
     def neighbors(memory_id: str) -> Any:
@@ -216,9 +222,15 @@ def create_graph_blueprint(
         """
         query_start = time.perf_counter()
 
-        depth = min(int(request.args.get("depth", 1)), 3)
+        try:
+            depth = min(int(request.args.get("depth", 1)), 3)
+        except ValueError:
+            abort(400, description="'depth' must be a valid integer")
         include_semantic = request.args.get("include_semantic", "true").lower() == "true"
-        semantic_limit = min(int(request.args.get("semantic_limit", 5)), 20)
+        try:
+            semantic_limit = min(int(request.args.get("semantic_limit", 5)), 20)
+        except ValueError:
+            abort(400, description="'semantic_limit' must be a valid integer")
 
         graph = get_memory_graph()
         if graph is None:
@@ -234,6 +246,7 @@ def create_graph_blueprint(
         center_node = serialize_node(center_result.result_set[0][0])
 
         # Get graph neighbors up to depth
+        # SECURITY: depth is bounded by min(int(...), 3) above — safe to interpolate, cannot exceed 3
         neighbor_query = f"""
             MATCH path = (m:Memory {{id: $id}})-[*1..{depth}]-(n:Memory)
             WHERE n.id <> $id
@@ -336,7 +349,7 @@ def create_graph_blueprint(
                                     }
                                 )
                 except Exception as e:
-                    logger.warning(f"Semantic neighbor search failed: {e}")
+                    logger.warning("Semantic neighbor search failed: %s", e)
 
         elapsed = time.perf_counter() - query_start
 
@@ -448,8 +461,8 @@ def create_graph_blueprint(
             )
 
         except Exception as e:
-            logger.error(f"graph/stats failed: {e}")
-            abort(500, description=str(e))
+            logger.exception("graph/stats failed")
+            abort(500, description="Internal server error")
 
     @bp.route("/types", methods=["GET"])
     def types() -> Any:

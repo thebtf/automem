@@ -34,19 +34,24 @@ services:
     ports:
       - "8001:8001" # Flask API
     environment:
+      # PUID/PGID: set to match your host user (e.g. from `id -u` / `id -g`)
+      # Required on Unraid and other NAS systems to avoid permission issues on bind mounts.
+      PUID: ${PUID:-1001}
+      PGID: ${PGID:-1001}
       FLASK_ENV: development
       FLASK_DEBUG: "1"
       PORT: 8001
+      PYTHONPATH: /app  # Required for scripts to import automem module
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: 6379
       FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:-}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
-      AUTOMEM_API_TOKEN: ${AUTOMEM_API_TOKEN:-test-token}
-      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-test-admin-token}
+      AUTOMEM_API_TOKEN: ${AUTOMEM_API_TOKEN:?AUTOMEM_API_TOKEN must be set (see .env.example)}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:?ADMIN_API_TOKEN must be set (see .env.example)}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-auto}  # auto|openai|local|placeholder
-      AUTOMEM_MODELS_DIR: /root/.config/automem/models  # Keep in sync with volume mount
+      AUTOMEM_MODELS_DIR: /home/appuser/.config/automem/models  # Keep in sync with volume mount
     depends_on:
       falkordb:
         condition: service_healthy
@@ -54,7 +59,7 @@ services:
         condition: service_started
     volumes:
       - .:/app
-      - fastembed_models:/root/.config/automem/models  # Persist embedding models
+      - fastembed_models:/home/appuser/.config/automem/models  # Persist embedding models
     restart: unless-stopped
 
   # Optional: FalkorDB Browser for visualization

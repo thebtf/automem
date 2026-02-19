@@ -91,12 +91,16 @@ class TestMemoryStoreContentSize:
 
     @pytest.fixture
     def app_client(self):
-        """Create a test client with mocked dependencies."""
-        # Import here to ensure stubs are installed
-        from app import app
+        """Create a test client with mocked dependencies.
 
-        app.config["TESTING"] = True
-        return app.test_client()
+        API_TOKEN is patched to None so auth is bypassed — these tests
+        exercise content-size validation, not authentication.
+        """
+        import app as app_module
+
+        app_module.app.config["TESTING"] = True
+        with patch.object(app_module, "API_TOKEN", None):
+            yield app_module.app.test_client()
 
     @pytest.fixture
     def auth_headers(self):

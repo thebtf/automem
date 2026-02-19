@@ -1,19 +1,59 @@
-venv
+# Version control
 .git
+.gitignore
+.gitattributes
+.github
+
+# Python virtual environments
+venv
+.venv
+env
+
+# Python cache
 __pycache__
-.pytest_cache
-backups
-.cursor
-.claude
-.vscode
 *.pyc
 *.pyo
 *.pyd
-*.log
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+tests
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Environment
+.env
+.env.*
+
+# Backups
+backups
+
+# IDE
+.cursor
+.claude
+.vscode
+.idea
 *.swp
 *.swo
 *.tmp
+
+# Logs
+*.log
+
+# Node.js
 node_modules
+mcp-sse-server/node_modules
+
+# Build artifacts
 dist
 build
 *.egg-info
+
+# Scripts (exclude health monitor, keep backup/restore)
+scripts/Dockerfile.health-monitor
+scripts/health_monitor.py

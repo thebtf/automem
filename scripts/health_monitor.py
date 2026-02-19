@@ -88,7 +88,7 @@ class HealthMonitor:
                 "timestamp": datetime.utcnow().isoformat(),
             }
         except Exception as e:
-            logger.error(f"FalkorDB health check failed: {e}")
+            logger.error("FalkorDB health check failed: %s", e)
             return {
                 "status": "unhealthy",
                 "error": str(e),
@@ -107,7 +107,7 @@ class HealthMonitor:
                 "timestamp": datetime.utcnow().isoformat(),
             }
         except Exception as e:
-            logger.error(f"Qdrant health check failed: {e}")
+            logger.error("Qdrant health check failed: %s", e)
             return {
                 "status": "unhealthy",
                 "error": str(e),
@@ -132,7 +132,7 @@ class HealthMonitor:
                     "timestamp": datetime.utcnow().isoformat(),
                 }
         except Exception as e:
-            logger.error(f"API health check failed: {e}")
+            logger.error("API health check failed: %s", e)
             return {
                 "status": "unhealthy",
                 "error": str(e),
@@ -161,8 +161,10 @@ class HealthMonitor:
 
         if severity != "ok":
             logger.warning(
-                f"Inconsistency detected: FalkorDB={falkor_count}, "
-                f"Qdrant={qdrant_count}, drift={drift_percent:.1f}%"
+                "Inconsistency detected: FalkorDB=%s, Qdrant=%s, drift=%.1f%%",
+                falkor_count,
+                qdrant_count,
+                drift_percent,
             )
             return {
                 "status": "inconsistent",
@@ -194,23 +196,23 @@ class HealthMonitor:
 
         # Log alert
         if level == "critical":
-            logger.error(f"🚨 CRITICAL: {title} - {message}")
+            logger.error("🚨 CRITICAL: %s - %s", title, message)
         elif level == "warning":
-            logger.warning(f"⚠️  WARNING: {title} - {message}")
+            logger.warning("⚠️  WARNING: %s - %s", title, message)
         else:
-            logger.info(f"ℹ️  INFO: {title} - {message}")
+            logger.info("ℹ️  INFO: %s - %s", title, message)
 
         # Send webhook
         if self.alert_webhook:
             try:
                 requests.post(self.alert_webhook, json=alert_data, timeout=10)
-                logger.info(f"   📤 Alert sent to webhook")
+                logger.info("   📤 Alert sent to webhook")
             except Exception as e:
-                logger.error(f"   ❌ Webhook failed: {e}")
+                logger.error("   ❌ Webhook failed: %s", e)
 
         # Send email (if configured - would need email library)
         if self.alert_email:
-            logger.info(f"   📧 Email alert to {self.alert_email} (email support not implemented)")
+            logger.info("   📧 Email alert to %s (email support not implemented)", self.alert_email)
             # TODO: Implement email alerts with smtplib
 
         # Rate limiting - don't spam alerts
@@ -242,7 +244,7 @@ class HealthMonitor:
             details={"drift_percent": drift_percent, "auto_recover_enabled": True},
         )
 
-        logger.warning(f"🔧 AUTO-RECOVERY ENABLED: Starting recovery for: {issue}")
+        logger.warning("🔧 AUTO-RECOVERY ENABLED: Starting recovery for: %s", issue)
 
         # Run recovery script
         try:
@@ -265,7 +267,7 @@ class HealthMonitor:
                 )
                 return True
             else:
-                logger.error(f"❌ Recovery failed: {result.stderr}")
+                logger.error("❌ Recovery failed: %s", result.stderr)
                 self.send_alert(
                     level="critical",
                     title="Auto-Recovery Failed",
@@ -274,7 +276,7 @@ class HealthMonitor:
                 )
                 return False
         except Exception as e:
-            logger.error(f"❌ Recovery execution failed: {e}")
+            logger.error("❌ Recovery execution failed: %s", e)
             self.send_alert(
                 level="critical",
                 title="Auto-Recovery Error",
@@ -293,10 +295,10 @@ class HealthMonitor:
         consistency = self.check_consistency(falkor_health, qdrant_health)
 
         # Log results
-        logger.info(f"   FalkorDB: {falkor_health['status']}")
-        logger.info(f"   Qdrant:   {qdrant_health['status']}")
-        logger.info(f"   API:      {api_health['status']}")
-        logger.info(f"   Consistency: {consistency['status']}")
+        logger.info("   FalkorDB: %s", falkor_health["status"])
+        logger.info("   Qdrant:   %s", qdrant_health["status"])
+        logger.info("   API:      %s", api_health["status"])
+        logger.info("   Consistency: %s", consistency["status"])
 
         # Store results
         self.last_check = {
@@ -314,7 +316,7 @@ class HealthMonitor:
 
             if severity == "critical":
                 # Critical data loss detected
-                logger.warning(f"⚠️  CRITICAL: FalkorDB has {drift_percent:.1f}% drift from Qdrant")
+                logger.warning("⚠️  CRITICAL: FalkorDB has %.1f%% drift from Qdrant", drift_percent)
                 self.trigger_recovery("Major data loss detected", drift_percent)
             elif severity == "warning":
                 # Minor drift - alert but don't recover
@@ -334,20 +336,21 @@ class HealthMonitor:
 
     def run_forever(self, interval: int = 300):
         """Run health checks continuously."""
-        logger.info(f"🚀 Starting health monitor (interval: {interval}s)")
+        logger.info("🚀 Starting health monitor (interval: %ss)", interval)
         logger.info(
-            f"   Auto-recovery: {'ENABLED' if self.auto_recover else 'DISABLED (alert only)'}"
+            "   Auto-recovery: %s",
+            "ENABLED" if self.auto_recover else "DISABLED (alert only)",
         )
-        logger.info(f"   Drift threshold: {self.drift_threshold_percent}%")
-        logger.info(f"   Critical threshold: {self.critical_threshold_percent}%")
+        logger.info("   Drift threshold: %s%%", self.drift_threshold_percent)
+        logger.info("   Critical threshold: %s%%", self.critical_threshold_percent)
         if self.alert_webhook:
-            logger.info(f"   Webhook alerts: {self.alert_webhook}")
+            logger.info("   Webhook alerts: %s", self.alert_webhook)
 
         while True:
             try:
                 self.run_check()
             except Exception as e:
-                logger.error(f"Health check failed: {e}")
+                logger.error("Health check failed: %s", e)
 
             time.sleep(interval)
 

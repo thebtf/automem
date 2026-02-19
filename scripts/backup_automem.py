@@ -104,7 +104,7 @@ class AutoMemBackup:
                     nodes.append({"id": row[0], "labels": row[1], "properties": row[2]})
                     batch_count += 1
 
-                logger.info(f"   Exported batch: {batch_count} nodes (total: {len(nodes)})")
+                logger.info("   Exported batch: %s nodes (total: %s)", batch_count, len(nodes))
 
                 if batch_count < batch_size:
                     break  # Last batch
@@ -146,7 +146,9 @@ class AutoMemBackup:
                     batch_count += 1
 
                 logger.info(
-                    f"   Exported batch: {batch_count} relationships (total: {len(relationships)})"
+                    "   Exported batch: %s relationships (total: %s)",
+                    batch_count,
+                    len(relationships),
                 )
 
                 if batch_count < batch_size:
@@ -172,13 +174,13 @@ class AutoMemBackup:
                 json.dump(backup_data, f, indent=2, default=str)
 
             size_mb = backup_file.stat().st_size / 1024 / 1024
-            logger.info(f"✅ FalkorDB backup saved: {backup_file.name} ({size_mb:.2f} MB)")
-            logger.info(f"   Nodes: {len(nodes)}, Relationships: {len(relationships)}")
+            logger.info("✅ FalkorDB backup saved: %s (%.2f MB)", backup_file.name, size_mb)
+            logger.info("   Nodes: %s, Relationships: %s", len(nodes), len(relationships))
 
             return backup_file
 
         except Exception as e:
-            logger.error(f"❌ FalkorDB backup failed: {e}")
+            logger.error("❌ FalkorDB backup failed: %s", e)
             raise
 
     def backup_qdrant(self) -> Path:
@@ -235,13 +237,13 @@ class AutoMemBackup:
                 json.dump(backup_data, f, indent=2, default=str)
 
             size_mb = backup_file.stat().st_size / 1024 / 1024
-            logger.info(f"✅ Qdrant backup saved: {backup_file.name} ({size_mb:.2f} MB)")
-            logger.info(f"   Points: {len(all_points)}")
+            logger.info("✅ Qdrant backup saved: %s (%.2f MB)", backup_file.name, size_mb)
+            logger.info("   Points: %s", len(all_points))
 
             return backup_file
 
         except Exception as e:
-            logger.error(f"❌ Qdrant backup failed: {e}")
+            logger.error("❌ Qdrant backup failed: %s", e)
             raise
 
     def upload_to_s3(self, file_path: Path):
@@ -255,7 +257,7 @@ class AutoMemBackup:
             s3 = boto3.client("s3")
             s3_key = f"automem-backups/{file_path.parent.name}/{file_path.name}"
 
-            logger.info(f"☁️  Uploading to s3://{self.s3_bucket}/{s3_key}")
+            logger.info("☁️  Uploading to s3://%s/%s", self.s3_bucket, s3_key)
             s3.upload_file(str(file_path), self.s3_bucket, s3_key)
             logger.info("✅ Uploaded to S3")
 
@@ -263,11 +265,11 @@ class AutoMemBackup:
             logger.warning("⚠️  boto3 not installed - skipping S3 upload")
             logger.warning("   Install with: pip install boto3")
         except Exception as e:
-            logger.error(f"❌ S3 upload failed: {e}")
+            logger.error("❌ S3 upload failed: %s", e)
 
     def cleanup_old_backups(self, keep: int = 7):
         """Remove old backup files, keeping only the most recent N."""
-        logger.info(f"🧹 Cleaning up old backups (keeping last {keep})...")
+        logger.info("🧹 Cleaning up old backups (keeping last %s)...", keep)
 
         for backup_type in ["falkordb", "qdrant"]:
             backup_path = self.backup_dir / backup_type
@@ -281,16 +283,16 @@ class AutoMemBackup:
 
             # Remove old files
             for old_file in backup_files[keep:]:
-                logger.info(f"   🗑️  Removing old backup: {old_file.name}")
+                logger.info("   🗑️  Removing old backup: %s", old_file.name)
                 old_file.unlink()
 
             kept = min(len(backup_files), keep)
             removed = max(0, len(backup_files) - keep)
-            logger.info(f"   ✅ {backup_type}: kept {kept}, removed {removed}")
+            logger.info("   ✅ %s: kept %s, removed %s", backup_type, kept, removed)
 
     def run_backup(self, cleanup: bool = False, keep: int = 7) -> Dict[str, Any]:
         """Run full backup process."""
-        logger.info(f"🚀 Starting AutoMem backup - {self.timestamp}")
+        logger.info("🚀 Starting AutoMem backup - %s", self.timestamp)
 
         results = {
             "timestamp": self.timestamp,
@@ -323,7 +325,7 @@ class AutoMemBackup:
             return results
 
         except Exception as e:
-            logger.error(f"❌ Backup failed: {e}")
+            logger.error("❌ Backup failed: %s", e)
             raise
 
 
@@ -377,7 +379,7 @@ Examples:
         print(json.dumps(results, indent=2))
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Backup failed: {e}")
+        logger.error("Backup failed: %s", e)
         sys.exit(1)
 
 

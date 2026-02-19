@@ -6,18 +6,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies + gosu for PUID/PGID privilege-drop entrypoint
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
+# Create non-root user — UID/GID are remapped at runtime via PUID/PGID env vars
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+
+# Copy application files (root-owned, world-readable — entrypoint runs as PUID)
 COPY scripts/health_monitor.py scripts/
 COPY scripts/recover_from_qdrant.py scripts/
 
+# Entrypoint handles PUID/PGID remapping and privilege drop
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Run health monitor (alert-only mode by default for safety)
 # Override with --auto-recover if you want automatic recovery
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "scripts/health_monitor.py", "--interval", "300"]

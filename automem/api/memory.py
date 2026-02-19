@@ -524,7 +524,7 @@ def create_memory_blueprint_full(
 
                         selector = http_models.PointIdsList(points=[memory_id])
                     except Exception as e:
-                        logger.warning(f"Failed to import qdrant_client.http.models: {e}")
+                        logger.warning("Failed to import qdrant_client.http.models: %s", e)
                 qdrant_client.delete(collection_name=collection_name, points_selector=selector)
             except Exception:
                 logger.exception("Failed to delete vector for memory %s", memory_id)
@@ -617,9 +617,12 @@ def create_memory_blueprint_full(
                 if prop in payload:
                     relationship_props[prop] = payload[prop]
 
+        # SECURITY: keys in relationship_props are hardcoded string literals (strength, updated_at,
+        # and type-specific property names from relation_types config) — safe to interpolate into SET clause
         set_clauses = [f"r.{key} = ${key}" for key in relationship_props]
         set_clause = ", ".join(set_clauses)
 
+        # SECURITY: relation_type is validated against allowed_relations allowlist above — safe to interpolate
         try:
             result = graph.query(
                 f"""

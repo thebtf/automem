@@ -2,6 +2,40 @@
 
 All notable changes to AutoMem will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+* **CRITICAL**: Fix timing attack vulnerabilities in API/admin token comparison (C-2, C-3)
+* **CRITICAL**: Remove client-supplied memory IDs to prevent overwrite attacks (C-4)
+* **CRITICAL**: Remove internal exception details from API error responses (C-5, M-6)
+* **CRITICAL**: Add .env.* pattern to gitignore to prevent secret leakage (C-1)
+* Update requests dependency to >=2.32.3 (CVE-2024-35195 fix)
+
+### Bug Fixes
+
+* **mcp**: Switch Streamable HTTP transport to stateless mode, eliminating session expiry failures. Claude Code has open bugs (#9608, #17412) where it does not auto-reinitialize sessions after TTL expiry. Stateless mode removes the TTL sweep entirely — each request creates an independent transport+server pair with no session state to expire.
+
+### Deprecated
+
+* **Authentication**: Query parameter token authentication (?api_key=) is deprecated and will be removed in next major version. Use `Authorization: Bearer` or `X-API-Key` header instead. Query parameters are logged in access logs, browser history, and proxy logs.
+
+### Fixed
+
+- **GitHub Actions Backup**: Fixed backup workflow failing with "Connection reset by peer" error
+  - Root cause: Backup script tried to connect to Railway internal hostname which isn't accessible from GitHub Actions
+  - Solution: Use Railway TCP Proxy for external access to FalkorDB
+  - Added pre-flight connectivity check with clear error messages and troubleshooting guidance
+  - Updated documentation with TCP Proxy setup instructions
+
+### Documentation
+
+- Expanded `docs/MONITORING_AND_BACKUPS.md` with:
+  - TCP Proxy setup instructions for GitHub Actions backups
+  - Network architecture diagram explaining internal vs external access
+  - Troubleshooting section for common backup failures
+  - Debug checklist for verifying backup configuration
+
 ## [0.11.0](https://github.com/verygoodplugins/automem/compare/v0.10.1...v0.11.0) (2026-02-16)
 
 
@@ -100,24 +134,6 @@ All notable changes to AutoMem will be documented in this file.
 * update MCP_SSE.md to reflect MCP bridge terminology ([940a776](https://github.com/verygoodplugins/automem/commit/940a776e0cb43ad74c4dd1c7c2820f9317b3a4c9))
 * Update Railway deployment docs and improve README ([5480eb5](https://github.com/verygoodplugins/automem/commit/5480eb52136162893236e0b5278cb241dd57481f))
 * Update Railway deployment docs and improve README ([82c33b0](https://github.com/verygoodplugins/automem/commit/82c33b05b7b24d66922888ba4ba3b09ba55a10d6))
-
-## [Unreleased]
-
-### Fixed
-
-- **GitHub Actions Backup**: Fixed backup workflow failing with "Connection reset by peer" error
-  - Root cause: Backup script tried to connect to Railway internal hostname which isn't accessible from GitHub Actions
-  - Solution: Use Railway TCP Proxy for external access to FalkorDB
-  - Added pre-flight connectivity check with clear error messages and troubleshooting guidance
-  - Updated documentation with TCP Proxy setup instructions
-
-### Documentation
-
-- Expanded `docs/MONITORING_AND_BACKUPS.md` with:
-  - TCP Proxy setup instructions for GitHub Actions backups
-  - Network architecture diagram explaining internal vs external access
-  - Troubleshooting section for common backup failures
-  - Debug checklist for verifying backup configuration
 
 ## [0.9.3] - 2025-12-10
 

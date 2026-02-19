@@ -82,6 +82,11 @@ ENRICHMENT_SPACY_MODEL = os.getenv("ENRICHMENT_SPACY_MODEL", "en_core_web_sm")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 CLASSIFICATION_MODEL = os.getenv("CLASSIFICATION_MODEL", "gpt-4o-mini")
 
+# OpenAI / Custom endpoint configuration
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")  # For embeddings (and classification if CLASSIFICATION_BASE_URL not set)
+CLASSIFICATION_BASE_URL = os.getenv("CLASSIFICATION_BASE_URL")  # Separate endpoint for classification LLM
+CLASSIFICATION_API_KEY = os.getenv("CLASSIFICATION_API_KEY")  # Separate API key for classification
+
 RECALL_RELATION_LIMIT = int(os.getenv("RECALL_RELATION_LIMIT", "5"))
 RECALL_EXPANSION_LIMIT = int(os.getenv("RECALL_EXPANSION_LIMIT", "25"))
 

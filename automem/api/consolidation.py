@@ -37,8 +37,8 @@ def create_consolidation_blueprint_full(
                 persist_run(graph, results)
             return jsonify({"status": "success", "consolidation": results}), 200
         except Exception as e:
-            logger.error(f"Consolidation failed: {e}")
-            return jsonify({"error": "Consolidation failed", "details": str(e)}), 500
+            logger.exception("Consolidation failed")
+            return jsonify({"error": "Consolidation failed"}), 500
 
     @bp.route("/consolidate/status", methods=["GET"])
     def status() -> Any:
@@ -65,7 +65,7 @@ def create_consolidation_blueprint_full(
                 200,
             )
         except Exception as e:
-            logger.error(f"Failed to get consolidation status: {e}")
-            return jsonify({"error": "Failed to get status", "details": str(e)}), 500
+            logger.exception("Failed to get consolidation status")
+            return jsonify({"error": "Failed to get status"}), 500
 
     return bp

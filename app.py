@@ -9,6 +9,7 @@ is unavailable.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -28,6 +29,8 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from falkordb import FalkorDB
 from flask import Blueprint, Flask, abort, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from qdrant_client import QdrantClient
 from qdrant_client import models as qdrant_models
 
@@ -112,12 +115,43 @@ except Exception:
 
 app = Flask(__name__)
 
-# Legacy blueprint placeholders for deprecated route definitions below.
-# These are not registered with the app and are safe to keep until full removal.
-admin_bp = Blueprint("admin_legacy", __name__)
-memory_bp = Blueprint("memory_legacy", __name__)
-recall_bp = Blueprint("recall_legacy", __name__)
-consolidation_bp = Blueprint("consolidation_legacy", __name__)
+# ---------------------------------------------------------------------------
+# Rate limiting (M-4)
+# ---------------------------------------------------------------------------
+# flask-limiter protects the API from abuse.  Limits are configurable via
+# environment variables so they can be tuned per deployment without code
+# changes.  Rate limiting is disabled entirely in test environments via the
+# RATELIMIT_ENABLED Flask config key (set to False in conftest.py).
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_ENABLED = os.environ.get("RATELIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
+_RATE_LIMIT_DEFAULT = os.environ.get("RATE_LIMIT_DEFAULT", "1000 per hour")
+
+app.config.setdefault("RATELIMIT_ENABLED", _RATE_LIMIT_ENABLED)
+app.config.setdefault("RATELIMIT_STORAGE_URI", "memory://")
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[_RATE_LIMIT_DEFAULT],
+    storage_uri=app.config["RATELIMIT_STORAGE_URI"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Security headers (H-3)
+# ---------------------------------------------------------------------------
+# Applied to every response. Prevents common web attacks regardless of client.
+# ---------------------------------------------------------------------------
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault(
+        "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
+    )
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
 
 # Import canonical configuration constants
 from automem.config import (
@@ -823,7 +857,22 @@ Return JSON with: {"type": "<type>", "confidence": <0.0-1.0>}"""
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": content[:1000]},  # Limit to 1000 chars
                 ],
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "classification",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string"},
+                                "confidence": {"type": "number"},
+                            },
+                            "required": ["type", "confidence"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
                 **extra_params,
             )
 
@@ -1138,6 +1187,12 @@ def _extract_api_token() -> Optional[str]:
 
     api_key_param = request.args.get("api_key")
     if api_key_param:
+        # DEPRECATED: Query parameter auth will be removed in next major version
+        # Tokens in query params are logged in access logs, browser history, proxy logs
+        logger.warning(
+            "DEPRECATED: Token via query parameter is deprecated and will be removed. "
+            "Use 'Authorization: Bearer' or 'X-API-Key' header instead."
+        )
         return api_key_param.strip()
 
     return None
@@ -1157,7 +1212,8 @@ def _require_admin_token() -> None:
         or request.args.get("admin_token")
     )
 
-    if provided != ADMIN_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(provided or "", ADMIN_TOKEN or ""):
         abort(401, description="Admin authorization required")
 
 
@@ -1172,8 +1228,23 @@ def require_api_token() -> None:
         return
 
     token = _extract_api_token()
-    if token != API_TOKEN:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token or "", API_TOKEN or ""):
         abort(401, description="Unauthorized")
+
+
+def _get_base_url_for_logging(url: str | None) -> str:
+    """Sanitize URL for logging by removing userinfo and query params."""
+    if not url:
+        return "default"
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # Return only scheme://host:port
+        sanitized = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "custom"
+        return sanitized
+    except Exception:
+        return "custom"
 
 
 def init_openai() -> None:
@@ -1186,17 +1257,32 @@ def init_openai() -> None:
         logger.info("OpenAI package not installed (used for memory type classification)")
         return
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    # Use separate classification credentials if provided, otherwise fall back to OPENAI_*
+    api_key = os.getenv("CLASSIFICATION_API_KEY") or os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("CLASSIFICATION_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+
     if not api_key:
         logger.info("OpenAI API key not provided (used for memory type classification)")
         return
 
     try:
-        state.openai_client = OpenAI(api_key=api_key)
-        logger.info("OpenAI client initialized for memory type classification")
+        state.openai_client = OpenAI(api_key=api_key, base_url=base_url)
+        logger.info(
+            "OpenAI client initialized for memory type classification (base_url=%s)",
+            _get_base_url_for_logging(base_url)
+        )
     except Exception:
         logger.exception("Failed to initialize OpenAI client")
         state.openai_client = None
+
+
+def _create_openai_embedding_provider(api_key: str, vector_size: int) -> "OpenAIEmbeddingProvider":
+    """Create OpenAI embedding provider with consistent configuration."""
+    from automem.embedding.openai import OpenAIEmbeddingProvider
+    base_url = os.getenv("OPENAI_BASE_URL")
+    return OpenAIEmbeddingProvider(
+        api_key=api_key, model=EMBEDDING_MODEL, dimension=vector_size, base_url=base_url
+    )
 
 
 def init_embedding_provider() -> None:
@@ -1248,16 +1334,8 @@ def init_embedding_provider() -> None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("EMBEDDING_PROVIDER=openai but OPENAI_API_KEY not set")
-        openai_base_url = (os.getenv("OPENAI_BASE_URL") or "").strip() or None
         try:
-            from automem.embedding.openai import OpenAIEmbeddingProvider
-
-            state.embedding_provider = OpenAIEmbeddingProvider(
-                api_key=api_key,
-                model=EMBEDDING_MODEL,
-                dimension=vector_size,
-                base_url=openai_base_url,
-            )
+            state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
             logger.info("Embedding provider: %s", state.embedding_provider.provider_name())
             return
         except Exception as e:
@@ -1327,15 +1405,7 @@ def init_embedding_provider() -> None:
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
-                from automem.embedding.openai import OpenAIEmbeddingProvider
-
-                openai_base_url = (os.getenv("OPENAI_BASE_URL") or "").strip() or None
-                state.embedding_provider = OpenAIEmbeddingProvider(
-                    api_key=api_key,
-                    model=EMBEDDING_MODEL,
-                    dimension=vector_size,
-                    base_url=openai_base_url,
-                )
+                state.embedding_provider = _create_openai_embedding_provider(api_key, vector_size)
                 logger.info(
                     "Embedding provider (auto-selected): %s",
                     state.embedding_provider.provider_name(),
@@ -2563,17 +2633,6 @@ def link_semantic_neighbors(graph: Any, memory_id: str) -> List[Tuple[str, float
     return created
 
 
-# Legacy route implementations retained for reference only.
-# NOTE: These are bound to unregistered "*_legacy" blueprints and are not active.
-# Active endpoints live in automem/api/* blueprints registered above.
-
-
-@admin_bp.route("/admin/reembed", methods=["POST"])
-def admin_reembed() -> Any:
-    """Legacy admin handler; route now provided by automem.api.admin blueprint."""
-    abort(410, description="/admin/reembed moved to blueprint")
-
-
 @app.errorhandler(Exception)
 def handle_exceptions(exc: Exception):
     """Return JSON responses for both HTTP and unexpected errors."""
@@ -2593,918 +2652,6 @@ def handle_exceptions(exc: Exception):
     }
     return jsonify(response), 500
 
-
-@memory_bp.route("/memory", methods=["POST"])
-def store_memory() -> Any:
-    query_start = time.perf_counter()
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        abort(400, description="JSON body is required")
-
-    content = (payload.get("content") or "").strip()
-    if not content:
-        abort(400, description="'content' is required")
-
-    tags = _normalize_tags(payload.get("tags"))
-    tags_lower = [t.strip().lower() for t in tags if isinstance(t, str) and t.strip()]
-    tag_prefixes = _compute_tag_prefixes(tags_lower)
-    importance = _coerce_importance(payload.get("importance"))
-    memory_id = payload.get("id") or str(uuid.uuid4())
-
-    metadata_raw = payload.get("metadata")
-    if metadata_raw is None:
-        metadata: Dict[str, Any] = {}
-    elif isinstance(metadata_raw, dict):
-        metadata = metadata_raw
-    else:
-        abort(400, description="'metadata' must be an object")
-    metadata_json = json.dumps(metadata, default=str)
-
-    # Accept explicit type/confidence or classify automatically
-    raw_type = payload.get("type")
-    type_confidence = payload.get("confidence")
-
-    if raw_type:
-        # Normalize type (handles aliases and case variations)
-        memory_type, was_normalized = normalize_memory_type(raw_type)
-
-        # Empty string means unknown type that couldn't be mapped
-        if not memory_type:
-            valid_types = sorted(MEMORY_TYPES)
-            alias_examples = ", ".join(f"'{k}'" for k in list(TYPE_ALIASES.keys())[:5])
-            abort(
-                400,
-                description=(
-                    f"Invalid memory type '{raw_type}'. "
-                    f"Must be one of: {', '.join(valid_types)}, "
-                    f"or aliases like {alias_examples}..."
-                ),
-            )
-
-        if was_normalized and memory_type != raw_type:
-            logger.debug("Normalized type '%s' -> '%s'", raw_type, memory_type)
-
-        # Use provided confidence or default
-        if type_confidence is None:
-            type_confidence = 0.9  # High confidence for explicit types
-        else:
-            type_confidence = _coerce_importance(type_confidence)
-    else:
-        # Auto-classify if no type provided
-        memory_type, type_confidence = memory_classifier.classify(content)
-
-    # Handle temporal validity fields
-    t_valid = payload.get("t_valid")
-    t_invalid = payload.get("t_invalid")
-    if t_valid:
-        try:
-            t_valid = _normalize_timestamp(t_valid)
-        except ValueError as exc:
-            abort(400, description=f"Invalid t_valid: {exc}")
-    if t_invalid:
-        try:
-            t_invalid = _normalize_timestamp(t_invalid)
-        except ValueError as exc:
-            abort(400, description=f"Invalid t_invalid: {exc}")
-
-    try:
-        embedding = _coerce_embedding(payload.get("embedding"))
-    except ValueError as exc:
-        abort(400, description=str(exc))
-
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    created_at = payload.get("timestamp")
-    if created_at:
-        try:
-            created_at = _normalize_timestamp(created_at)
-        except ValueError as exc:
-            abort(400, description=str(exc))
-    else:
-        created_at = utc_now()
-
-    updated_at = payload.get("updated_at")
-    if updated_at:
-        try:
-            updated_at = _normalize_timestamp(updated_at)
-        except ValueError as exc:
-            abort(400, description=f"Invalid updated_at: {exc}")
-    else:
-        updated_at = created_at
-
-    last_accessed = payload.get("last_accessed")
-    if last_accessed:
-        try:
-            last_accessed = _normalize_timestamp(last_accessed)
-        except ValueError as exc:
-            abort(400, description=f"Invalid last_accessed: {exc}")
-    else:
-        last_accessed = updated_at
-
-    try:
-        graph.query(
-            """
-            MERGE (m:Memory {id: $id})
-            SET m.content = $content,
-                m.timestamp = $timestamp,
-                m.importance = $importance,
-                m.tags = $tags,
-                m.tag_prefixes = $tag_prefixes,
-                m.type = $type,
-                m.confidence = $confidence,
-                m.t_valid = $t_valid,
-                m.t_invalid = $t_invalid,
-                m.updated_at = $updated_at,
-                m.last_accessed = $last_accessed,
-                m.metadata = $metadata,
-                m.processed = false
-            RETURN m
-            """,
-            {
-                "id": memory_id,
-                "content": content,
-                "timestamp": created_at,
-                "importance": importance,
-                "tags": tags,
-                "tag_prefixes": tag_prefixes,
-                "type": memory_type,
-                "confidence": type_confidence,
-                "t_valid": t_valid or created_at,
-                "t_invalid": t_invalid,
-                "updated_at": updated_at,
-                "last_accessed": last_accessed,
-                "metadata": metadata_json,
-            },
-        )
-    except Exception:  # pragma: no cover - log full stack trace in production
-        logger.exception("Failed to persist memory in FalkorDB")
-        abort(500, description="Failed to store memory in FalkorDB")
-
-    # Queue for enrichment
-    enqueue_enrichment(memory_id)
-
-    # Queue for async embedding generation (if no embedding provided)
-    embedding_status = "skipped"
-    qdrant_client = get_qdrant_client()
-
-    if embedding is not None:
-        # Sync path: User provided embedding, store immediately
-        embedding_status = "provided"
-        qdrant_result = None
-        if qdrant_client is not None:
-            try:
-                qdrant_client.upsert(
-                    collection_name=COLLECTION_NAME,
-                    points=[
-                        PointStruct(
-                            id=memory_id,
-                            vector=embedding,
-                            payload={
-                                "content": content,
-                                "tags": tags,
-                                "tag_prefixes": tag_prefixes,
-                                "importance": importance,
-                                "timestamp": created_at,
-                                "type": memory_type,
-                                "confidence": type_confidence,
-                                "updated_at": updated_at,
-                                "last_accessed": last_accessed,
-                                "metadata": metadata,
-                            },
-                        )
-                    ],
-                )
-                qdrant_result = "stored"
-            except Exception:  # pragma: no cover - log full stack trace in production
-                logger.exception("Qdrant upsert failed")
-                qdrant_result = "failed"
-    elif qdrant_client is not None:
-        # Async path: Queue embedding generation
-        enqueue_embedding(memory_id, content)
-        embedding_status = "queued"
-        qdrant_result = "queued"
-    else:
-        qdrant_result = "unconfigured"
-
-    response = {
-        "status": "success",
-        "memory_id": memory_id,
-        "stored_at": created_at,
-        "type": memory_type,
-        "confidence": type_confidence,
-        "qdrant": qdrant_result,
-        "embedding_status": embedding_status,
-        "enrichment": "queued" if state.enrichment_queue else "disabled",
-        "metadata": metadata,
-        "timestamp": created_at,
-        "updated_at": updated_at,
-        "last_accessed": last_accessed,
-        "query_time_ms": round((time.perf_counter() - query_start) * 1000, 2),
-    }
-
-    # Structured logging for performance analysis
-    logger.info(
-        "memory_stored",
-        extra={
-            "memory_id": memory_id,
-            "type": memory_type,
-            "importance": importance,
-            "tags_count": len(tags),
-            "content_length": len(content),
-            "latency_ms": response["query_time_ms"],
-            "embedding_status": embedding_status,
-            "qdrant_status": qdrant_result,
-            "enrichment_queued": bool(state.enrichment_queue),
-        },
-    )
-
-    # Emit SSE event for real-time monitoring
-    emit_event(
-        "memory.store",
-        {
-            "id": memory_id,
-            "content_preview": content[:100] + "..." if len(content) > 100 else content,
-            "type": memory_type,
-            "importance": importance,
-            "tags": tags[:5],
-            "size_bytes": len(content),
-            "elapsed_ms": int(response["query_time_ms"]),
-        },
-        utc_now,
-    )
-
-    return jsonify(response), 201
-
-
-@memory_bp.route("/memory/<memory_id>", methods=["PATCH"])
-def update_memory(memory_id: str) -> Any:
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        abort(400, description="JSON body is required")
-
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    result = graph.query("MATCH (m:Memory {id: $id}) RETURN m", {"id": memory_id})
-    if not getattr(result, "result_set", None):
-        abort(404, description="Memory not found")
-
-    current_node = result.result_set[0][0]
-    current = _serialize_node(current_node)
-
-    new_content = payload.get("content", current.get("content"))
-    tags = _normalize_tag_list(payload.get("tags", current.get("tags")))
-    tags_lower = [t.strip().lower() for t in tags if isinstance(t, str) and t.strip()]
-    tag_prefixes = _compute_tag_prefixes(tags_lower)
-    importance = payload.get("importance", current.get("importance"))
-    memory_type = payload.get("type", current.get("type"))
-    confidence = payload.get("confidence", current.get("confidence"))
-    timestamp = payload.get("timestamp", current.get("timestamp"))
-    metadata_raw = payload.get("metadata", _parse_metadata_field(current.get("metadata")))
-    updated_at = payload.get("updated_at", current.get("updated_at", utc_now()))
-    last_accessed = payload.get("last_accessed", current.get("last_accessed"))
-
-    if metadata_raw is None:
-        metadata: Dict[str, Any] = {}
-    elif isinstance(metadata_raw, dict):
-        metadata = metadata_raw
-    else:
-        abort(400, description="'metadata' must be an object")
-    metadata_json = json.dumps(metadata, default=str)
-
-    if timestamp:
-        try:
-            timestamp = _normalize_timestamp(timestamp)
-        except ValueError as exc:
-            abort(400, description=f"Invalid timestamp: {exc}")
-
-    if updated_at:
-        try:
-            updated_at = _normalize_timestamp(updated_at)
-        except ValueError as exc:
-            abort(400, description=f"Invalid updated_at: {exc}")
-
-    if last_accessed:
-        try:
-            last_accessed = _normalize_timestamp(last_accessed)
-        except ValueError as exc:
-            abort(400, description=f"Invalid last_accessed: {exc}")
-
-    update_query = """
-        MATCH (m:Memory {id: $id})
-        SET m.content = $content,
-            m.tags = $tags,
-            m.tag_prefixes = $tag_prefixes,
-            m.importance = $importance,
-            m.type = $type,
-            m.confidence = $confidence,
-            m.timestamp = $timestamp,
-            m.metadata = $metadata,
-            m.updated_at = $updated_at,
-            m.last_accessed = $last_accessed
-        RETURN m
-    """
-
-    graph.query(
-        update_query,
-        {
-            "id": memory_id,
-            "content": new_content,
-            "tags": tags,
-            "tag_prefixes": tag_prefixes,
-            "importance": importance,
-            "type": memory_type,
-            "confidence": confidence,
-            "timestamp": timestamp,
-            "metadata": metadata_json,
-            "updated_at": updated_at,
-            "last_accessed": last_accessed,
-        },
-    )
-
-    qdrant_client = get_qdrant_client()
-    vector = None
-    if qdrant_client is not None:
-        if new_content != current.get("content"):
-            vector = _generate_real_embedding(new_content)
-        else:
-            try:
-                existing = qdrant_client.retrieve(
-                    collection_name=COLLECTION_NAME,
-                    ids=[memory_id],
-                    with_vectors=True,
-                )
-                if existing:
-                    vector = existing[0].vector
-            except Exception:
-                logger.exception("Failed to retrieve existing vector; regenerating")
-                vector = _generate_real_embedding(new_content)
-
-        if vector is not None:
-            payload = {
-                "content": new_content,
-                "tags": tags,
-                "tag_prefixes": tag_prefixes,
-                "importance": importance,
-                "timestamp": timestamp,
-                "type": memory_type,
-                "confidence": confidence,
-                "updated_at": updated_at,
-                "last_accessed": last_accessed,
-                "metadata": metadata,
-            }
-            qdrant_client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
-            )
-
-    return jsonify({"status": "success", "memory_id": memory_id})
-
-
-@memory_bp.route("/memory/<memory_id>", methods=["DELETE"])
-def delete_memory(memory_id: str) -> Any:
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    result = graph.query("MATCH (m:Memory {id: $id}) RETURN m", {"id": memory_id})
-    if not getattr(result, "result_set", None):
-        abort(404, description="Memory not found")
-
-    graph.query("MATCH (m:Memory {id: $id}) DETACH DELETE m", {"id": memory_id})
-
-    qdrant_client = get_qdrant_client()
-    if qdrant_client is not None:
-        try:
-            if "qdrant_models" in globals() and qdrant_models is not None:
-                selector = qdrant_models.PointIdsList(points=[memory_id])
-            else:
-                selector = {"points": [memory_id]}
-            qdrant_client.delete(collection_name=COLLECTION_NAME, points_selector=selector)
-        except Exception:
-            logger.exception("Failed to delete vector for memory %s", memory_id)
-
-    return jsonify({"status": "success", "memory_id": memory_id})
-
-
-@memory_bp.route("/memory/by-tag", methods=["GET"])
-def memories_by_tag() -> Any:
-    raw_tags = request.args.getlist("tags") or request.args.get("tags")
-    tags = _normalize_tag_list(raw_tags)
-    if not tags:
-        abort(400, description="'tags' query parameter is required")
-
-    limit = max(1, min(int(request.args.get("limit", 20)), 200))
-
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    params = {
-        "tags": [tag.lower() for tag in tags],
-        "limit": limit,
-    }
-
-    query = """
-        MATCH (m:Memory)
-        WHERE ANY(tag IN coalesce(m.tags, []) WHERE toLower(tag) IN $tags)
-        RETURN m
-        ORDER BY m.importance DESC, m.timestamp DESC
-        LIMIT $limit
-    """
-
-    try:
-        result = graph.query(query, params)
-    except Exception:
-        logger.exception("Tag search failed")
-        abort(500, description="Failed to search by tag")
-
-    memories: List[Dict[str, Any]] = []
-    for row in getattr(result, "result_set", []) or []:
-        data = _serialize_node(row[0])
-        data["metadata"] = _parse_metadata_field(data.get("metadata"))
-        memories.append(data)
-
-    return jsonify(
-        {"status": "success", "tags": tags, "count": len(memories), "memories": memories}
-    )
-
-
-@recall_bp.route("/recall", methods=["GET"])
-def recall_memories() -> Any:
-    query_start = time.perf_counter()
-    query_text = (request.args.get("query") or "").strip()
-    try:
-        requested_limit = int(request.args.get("limit", 5))
-    except (TypeError, ValueError):
-        requested_limit = 5
-    limit = max(1, min(requested_limit, RECALL_MAX_LIMIT))
-    embedding_param = request.args.get("embedding")
-    time_query = request.args.get("time_query") or request.args.get("time")
-    start_param = request.args.get("start")
-    end_param = request.args.get("end")
-    tags_param = request.args.getlist("tags") or request.args.get("tags")
-
-    tag_mode = (request.args.get("tag_mode") or "any").strip().lower()
-    if tag_mode not in {"any", "all"}:
-        tag_mode = "any"
-
-    tag_match = (request.args.get("tag_match") or "prefix").strip().lower()
-    if tag_match not in {"exact", "prefix"}:
-        tag_match = "prefix"
-
-    time_start, time_end = _parse_time_expression(time_query)
-
-    start_time = time_start
-    end_time = time_end
-
-    if start_param:
-        try:
-            start_time = _normalize_timestamp(start_param)
-        except ValueError as exc:
-            abort(400, description=f"Invalid start time: {exc}")
-
-    if end_param:
-        try:
-            end_time = _normalize_timestamp(end_param)
-        except ValueError as exc:
-            abort(400, description=f"Invalid end time: {exc}")
-
-    tag_filters = _normalize_tag_list(tags_param)
-
-    seen_ids: set[str] = set()
-    graph = get_memory_graph()
-    qdrant_client = get_qdrant_client()
-
-    results: List[Dict[str, Any]] = []
-    vector_matches: List[Dict[str, Any]] = []
-    # Delegate implementation to recall blueprint module (kept for backward-compatibility)
-    from automem.api.recall import handle_recall  # local import to avoid cycles
-
-    response = handle_recall(
-        get_memory_graph,
-        get_qdrant_client,
-        _normalize_tag_list,
-        _normalize_timestamp,
-        _parse_time_expression,
-        _extract_keywords,
-        _compute_metadata_score,
-        _result_passes_filters,
-        _graph_keyword_search,
-        _vector_search,
-        _vector_filter_only_tag_search,
-        RECALL_MAX_LIMIT,
-        logger,
-        allowed_relations=ALLOWED_RELATIONS,
-        relation_limit=RECALL_RELATION_LIMIT,
-        expansion_limit_default=RECALL_EXPANSION_LIMIT,
-    )
-
-    # Emit SSE event for real-time monitoring
-    elapsed_ms = int((time.perf_counter() - query_start) * 1000)
-    result_count = 0
-    try:
-        # Response is either a tuple (response, status) or Response object
-        resp_data = response[0] if isinstance(response, tuple) else response
-        if hasattr(resp_data, "get_json"):
-            data = resp_data.get_json(silent=True) or {}
-            result_count = len(data.get("memories", []))
-    except Exception as e:
-        logger.debug("Failed to parse response for result_count", exc_info=e)
-
-    emit_event(
-        "memory.recall",
-        {
-            "query": query_text[:50] if query_text else "(no query)",
-            "limit": limit,
-            "result_count": result_count,
-            "elapsed_ms": elapsed_ms,
-            "tags": tag_filters[:3] if tag_filters else [],
-        },
-        utc_now,
-    )
-
-    return response
-
-
-@memory_bp.route("/associate", methods=["POST"])
-def create_association() -> Any:
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        abort(400, description="JSON body is required")
-
-    memory1_id = (payload.get("memory1_id") or "").strip()
-    memory2_id = (payload.get("memory2_id") or "").strip()
-    relation_type = (payload.get("type") or "RELATES_TO").upper()
-    strength = _coerce_importance(payload.get("strength", 0.5))
-
-    if not memory1_id or not memory2_id:
-        abort(400, description="'memory1_id' and 'memory2_id' are required")
-    if memory1_id == memory2_id:
-        abort(400, description="Cannot associate a memory with itself")
-    if relation_type not in ALLOWED_RELATIONS:
-        abort(400, description=f"Relation type must be one of {sorted(ALLOWED_RELATIONS)}")
-
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    timestamp = utc_now()
-
-    # Build relationship properties based on type
-    relationship_props = {
-        "strength": strength,
-        "updated_at": timestamp,
-    }
-
-    # Add type-specific properties if provided
-    relation_config = RELATIONSHIP_TYPES.get(relation_type, {})
-    if "properties" in relation_config:
-        for prop in relation_config["properties"]:
-            if prop in payload:
-                relationship_props[prop] = payload[prop]
-
-    # Build the SET clause dynamically
-    set_clauses = [f"r.{key} = ${key}" for key in relationship_props]
-    set_clause = ", ".join(set_clauses)
-
-    try:
-        result = graph.query(
-            f"""
-            MATCH (m1:Memory {{id: $id1}})
-            MATCH (m2:Memory {{id: $id2}})
-            MERGE (m1)-[r:{relation_type}]->(m2)
-            SET {set_clause}
-            RETURN r
-            """,
-            {
-                "id1": memory1_id,
-                "id2": memory2_id,
-                **relationship_props,
-            },
-        )
-    except Exception:  # pragma: no cover - log full stack trace in production
-        logger.exception("Failed to create association")
-        abort(500, description="Failed to create association")
-
-    if not result.result_set:
-        abort(404, description="One or both memories do not exist")
-
-    response = {
-        "status": "success",
-        "message": f"Association created between {memory1_id} and {memory2_id}",
-        "relation_type": relation_type,
-        "strength": strength,
-    }
-
-    # Add additional properties to response
-    for prop in relation_config.get("properties", []):
-        if prop in relationship_props:
-            response[prop] = relationship_props[prop]
-
-    return jsonify(response), 201
-
-
-@consolidation_bp.route("/consolidate", methods=["POST"])
-def consolidate_memories() -> Any:
-    """Run memory consolidation."""
-    data = request.get_json() or {}
-    mode = data.get("mode", "full")
-    dry_run = data.get("dry_run", True)
-
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    init_consolidation_scheduler()
-
-    try:
-        vector_store = get_qdrant_client()
-        consolidator = MemoryConsolidator(graph, vector_store)
-        results = consolidator.consolidate(mode=mode, dry_run=dry_run)
-
-        if not dry_run:
-            _persist_consolidation_run(graph, results)
-
-        return jsonify({"status": "success", "consolidation": results}), 200
-    except Exception as e:
-        logger.error(f"Consolidation failed: {e}")
-        return jsonify({"error": "Consolidation failed", "details": str(e)}), 500
-
-
-@consolidation_bp.route("/consolidate/status", methods=["GET"])
-def consolidation_status() -> Any:
-    """Get consolidation scheduler status."""
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    try:
-        init_consolidation_scheduler()
-        scheduler = _build_scheduler_from_graph(graph)
-        history = _load_recent_runs(graph, CONSOLIDATION_HISTORY_LIMIT)
-        next_runs = scheduler.get_next_runs() if scheduler else {}
-
-        return (
-            jsonify(
-                {
-                    "status": "success",
-                    "next_runs": next_runs,
-                    "history": history,
-                    "thread_alive": bool(
-                        state.consolidation_thread and state.consolidation_thread.is_alive()
-                    ),
-                    "tick_seconds": CONSOLIDATION_TICK_SECONDS,
-                }
-            ),
-            200,
-        )
-    except Exception as e:
-        logger.error(f"Failed to get consolidation status: {e}")
-        return jsonify({"error": "Failed to get status", "details": str(e)}), 500
-
-
-@recall_bp.route("/startup-recall", methods=["GET"])
-def startup_recall() -> Any:
-    """Recall critical lessons at session startup."""
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    try:
-        # Search for critical lessons and system rules
-        lesson_query = """
-            MATCH (m:Memory)
-            WHERE 'critical' IN m.tags OR 'lesson' IN m.tags OR 'ai-assistant' IN m.tags
-            RETURN m.id as id, m.content as content, m.tags as tags,
-                   m.importance as importance, m.type as type, m.metadata as metadata
-            ORDER BY m.importance DESC
-            LIMIT 10
-        """
-
-        lesson_results = graph.query(lesson_query)
-        lessons = []
-
-        if lesson_results.result_set:
-            for row in lesson_results.result_set:
-                lessons.append(
-                    {
-                        "id": row[0],
-                        "content": row[1],
-                        "tags": row[2] if row[2] else [],
-                        "importance": row[3] if row[3] else 0.5,
-                        "type": row[4] if row[4] else "Context",
-                        "metadata": json.loads(row[5]) if row[5] else {},
-                    }
-                )
-
-        # Get system rules
-        system_query = """
-            MATCH (m:Memory)
-            WHERE 'system' IN m.tags OR 'memory-recall' IN m.tags
-            RETURN m.id as id, m.content as content, m.tags as tags
-            LIMIT 5
-        """
-
-        system_results = graph.query(system_query)
-        system_rules = []
-
-        if system_results.result_set:
-            for row in system_results.result_set:
-                system_rules.append(
-                    {"id": row[0], "content": row[1], "tags": row[2] if row[2] else []}
-                )
-
-        response = {
-            "status": "success",
-            "critical_lessons": lessons,
-            "system_rules": system_rules,
-            "lesson_count": len(lessons),
-            "has_critical": any(l.get("importance", 0) >= 0.9 for l in lessons),
-            "summary": f"Recalled {len(lessons)} lesson(s) and {len(system_rules)} system rule(s)",
-        }
-
-        return jsonify(response), 200
-
-    except Exception as e:
-        logger.error(f"Startup recall failed: {e}")
-        return jsonify({"error": "Startup recall failed", "details": str(e)}), 500
-
-
-@recall_bp.route("/analyze", methods=["GET"])
-def analyze_memories() -> Any:
-    """Analyze memory patterns, preferences, and insights."""
-    query_start = time.perf_counter()
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    analytics = {
-        "memory_types": {},
-        "patterns": [],
-        "preferences": [],
-        "temporal_insights": {},
-        "entity_frequency": {},
-        "confidence_distribution": {},
-    }
-
-    try:
-        # Analyze memory type distribution
-        type_result = graph.query(
-            """
-            MATCH (m:Memory)
-            WHERE m.type IS NOT NULL
-            RETURN m.type, COUNT(m) as count, AVG(m.confidence) as avg_confidence
-            ORDER BY count DESC
-            """
-        )
-
-        for mem_type, count, avg_conf in type_result.result_set:
-            analytics["memory_types"][mem_type] = {
-                "count": count,
-                "average_confidence": round(avg_conf, 3) if avg_conf else 0,
-            }
-
-        # Find patterns with high confidence
-        pattern_result = graph.query(
-            """
-            MATCH (p:Pattern)
-            WHERE p.confidence > 0.6
-            RETURN p.type, p.content, p.confidence, p.observations
-            ORDER BY p.confidence DESC
-            LIMIT 10
-            """
-        )
-
-        for p_type, content, confidence, observations in pattern_result.result_set:
-            analytics["patterns"].append(
-                {
-                    "type": p_type,
-                    "description": content,
-                    "confidence": round(confidence, 3) if confidence else 0,
-                    "observations": observations or 0,
-                }
-            )
-
-        # Find preferences (PREFERS_OVER relationships)
-        pref_result = graph.query(
-            """
-            MATCH (m1:Memory)-[r:PREFERS_OVER]->(m2:Memory)
-            RETURN m1.content, m2.content, r.context, r.strength
-            ORDER BY r.strength DESC
-            LIMIT 10
-            """
-        )
-
-        for preferred, over, context, strength in pref_result.result_set:
-            analytics["preferences"].append(
-                {
-                    "prefers": preferred,
-                    "over": over,
-                    "context": context,
-                    "strength": round(strength, 3) if strength else 0,
-                }
-            )
-
-        # Temporal insights - simplified for FalkorDB compatibility
-        try:
-            temporal_result = graph.query(
-                """
-                MATCH (m:Memory)
-                WHERE m.timestamp IS NOT NULL
-                RETURN m.timestamp, m.importance
-                LIMIT 100
-                """
-            )
-
-            # Process temporal data in Python
-            from collections import defaultdict
-
-            hour_data = defaultdict(lambda: {"count": 0, "total_importance": 0})
-
-            for timestamp, importance in temporal_result.result_set:
-                if timestamp and len(timestamp) > 13:
-                    # Extract hour from timestamp string
-                    hour_str = timestamp[11:13]
-                    if hour_str.isdigit():
-                        hour = int(hour_str)
-                        hour_data[hour]["count"] += 1
-                        hour_data[hour]["total_importance"] += importance or 0.5
-
-            # Calculate averages
-            for hour, data in hour_data.items():
-                if data["count"] > 0:
-                    analytics["temporal_insights"][f"hour_{hour:02d}"] = {
-                        "count": data["count"],
-                        "avg_importance": round(data["total_importance"] / data["count"], 3),
-                    }
-        except Exception:
-            # Skip temporal insights if query fails
-            pass
-
-        # Confidence distribution
-        conf_result = graph.query(
-            """
-            MATCH (m:Memory)
-            WHERE m.confidence IS NOT NULL
-            RETURN
-                CASE
-                    WHEN m.confidence < 0.3 THEN 'low'
-                    WHEN m.confidence < 0.7 THEN 'medium'
-                    ELSE 'high'
-                END as level,
-                COUNT(m) as count
-            """
-        )
-
-        for level, count in conf_result.result_set:
-            analytics["confidence_distribution"][level] = count
-
-        # Entity extraction insights (top mentioned tools/projects)
-        entity_result = graph.query(
-            """
-            MATCH (m:Memory)
-            WHERE m.content IS NOT NULL
-            RETURN m.content
-            LIMIT 100
-            """
-        )
-
-        entity_counts: Dict[str, Dict[str, int]] = {
-            "tools": {},
-            "projects": {},
-        }
-
-        for (content,) in entity_result.result_set:
-            entities = extract_entities(content)
-            for tool in entities.get("tools", []):
-                entity_counts["tools"][tool] = entity_counts["tools"].get(tool, 0) + 1
-            for project in entities.get("projects", []):
-                entity_counts["projects"][project] = entity_counts["projects"].get(project, 0) + 1
-
-        # Top 5 most mentioned
-        analytics["entity_frequency"]["tools"] = sorted(
-            entity_counts["tools"].items(), key=lambda x: x[1], reverse=True
-        )[:5]
-        analytics["entity_frequency"]["projects"] = sorted(
-            entity_counts["projects"].items(), key=lambda x: x[1], reverse=True
-        )[:5]
-
-    except Exception:
-        logger.exception("Failed to generate analytics")
-        abort(500, description="Failed to generate analytics")
-
-    return jsonify(
-        {
-            "status": "success",
-            "analytics": analytics,
-            "generated_at": utc_now(),
-            "query_time_ms": round((time.perf_counter() - query_start) * 1000, 2),
-        }
-    )
 
 
 def _normalize_tags(value: Any) -> List[str]:
@@ -3638,105 +2785,6 @@ def _fetch_relations(graph: Any, memory_id: str) -> List[Dict[str, Any]]:
     return connections
 
 
-@recall_bp.route("/memories/<memory_id>/related", methods=["GET"])
-def get_related_memories(memory_id: str) -> Any:
-    """Return related memories by traversing relationship edges.
-
-    Query params:
-      - relationship_types: comma-separated list of relationship types to traverse
-      - max_depth: traversal depth (default 1, max 3)
-      - limit: max number of related memories to return (default RECALL_RELATION_LIMIT)
-    """
-    graph = get_memory_graph()
-    if graph is None:
-        abort(503, description="FalkorDB is unavailable")
-
-    # Parse and sanitize relationship types
-    rel_types_param = (request.args.get("relationship_types") or "").strip()
-    if rel_types_param:
-        requested = [part.strip().upper() for part in rel_types_param.split(",") if part.strip()]
-        rel_types = [t for t in requested if t in ALLOWED_RELATIONS]
-        if not rel_types:
-            rel_types = sorted(ALLOWED_RELATIONS)
-    else:
-        rel_types = sorted(ALLOWED_RELATIONS)
-
-    # Depth and limit
-    try:
-        max_depth = int(request.args.get("max_depth", 1))
-    except (TypeError, ValueError):
-        max_depth = 1
-    max_depth = max(1, min(max_depth, 3))
-
-    try:
-        limit = int(request.args.get("limit", RECALL_RELATION_LIMIT))
-    except (TypeError, ValueError):
-        limit = RECALL_RELATION_LIMIT
-    limit = max(1, min(limit, 200))
-
-    # Build relationship type pattern like :A|B|C
-    if rel_types:
-        rel_pattern = ":" + "|".join(rel_types)
-    else:
-        rel_pattern = ""
-
-    # Build Cypher query
-    # We prefer full memory nodes (not summaries) for downstream consumers
-    query = f"""
-        MATCH (m:Memory {{id: $id}}){'-[r' + rel_pattern + f']-' if rel_pattern else '-[r]-'}(related:Memory)
-        WHERE m.id <> related.id
-        CALL apoc.path.expandConfig(related, {{
-            relationshipFilter: '{'|'.join(rel_types)}',
-            minLevel: 0,
-            maxLevel: $max_depth,
-            bfs: true,
-            filterStartNode: true
-        }}) YIELD path
-        WITH DISTINCT related
-        RETURN related
-        ORDER BY coalesce(related.importance, 0.0) DESC, coalesce(related.timestamp, '') DESC
-        LIMIT $limit
-    """
-
-    # If APOC is unavailable, fall back to simple 1..depth traversal without apoc
-    fallback_query = f"""
-        MATCH (m:Memory {{id: $id}}){'-[r' + rel_pattern + f'*1..$max_depth]-' if rel_pattern else '-[r*1..$max_depth]-'}(related:Memory)
-        WHERE m.id <> related.id
-        RETURN DISTINCT related
-        ORDER BY coalesce(related.importance, 0.0) DESC, coalesce(related.timestamp, '') DESC
-        LIMIT $limit
-    """
-
-    params = {"id": memory_id, "max_depth": max_depth, "limit": limit}
-
-    try:
-        result = graph.query(query, params)
-    except Exception:
-        # Try fallback if APOC or features not available
-        try:
-            result = graph.query(fallback_query, params)
-        except Exception:
-            logger.exception("Failed to traverse related memories for %s", memory_id)
-            abort(500, description="Failed to fetch related memories")
-
-    related: List[Dict[str, Any]] = []
-    for row in getattr(result, "result_set", []) or []:
-        node = row[0]
-        data = _serialize_node(node)
-        if data.get("id") != memory_id:
-            related.append(data)
-
-    return jsonify(
-        {
-            "status": "success",
-            "memory_id": memory_id,
-            "count": len(related),
-            "related_memories": related,
-            "relationship_types": rel_types,
-            "max_depth": max_depth,
-            "limit": limit,
-        }
-    )
 
 
 from automem.api.admin import create_admin_blueprint_full
@@ -3872,5 +2920,6 @@ if __name__ == "__main__":
     init_embedding_pipeline()
     init_consolidation_scheduler()
     init_sync_worker()
-    # Use :: for IPv6 dual-stack (Railway internal networking uses IPv6)
-    app.run(host="::", port=port, debug=False)
+    # Use :: for IPv6 dual-stack (Railway), 0.0.0.0 for IPv4-only (Windows/local)
+    host = os.environ.get("FLASK_HOST", "::")
+    app.run(host=host, port=port, debug=False)

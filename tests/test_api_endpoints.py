@@ -1347,6 +1347,48 @@ def test_recall_with_exclude_tags_prefix_matching(client, auth_headers):
         assert "permanent" in mem_tags
 
 
+# ==================== Test Graph API Input Validation (H-5) ====================
+
+
+def test_graph_snapshot_invalid_limit(client, mock_state, auth_headers):
+    """GET /graph/snapshot?limit=abc must return 400, not 500."""
+    response = client.get("/graph/snapshot?limit=abc", headers=auth_headers)
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "limit" in data.get("description", data.get("message", "")).lower()
+
+
+def test_graph_neighbors_invalid_depth(client, mock_state, auth_headers):
+    """GET /graph/neighbors/<id>?depth=xyz must return 400, not 500."""
+    response = client.get("/graph/neighbors/some-memory-id?depth=xyz", headers=auth_headers)
+    # 404 is acceptable if the memory does not exist, but the param parse
+    # happens before the DB lookup, so we must see 400.
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "depth" in data.get("description", data.get("message", "")).lower()
+
+
+def test_graph_snapshot_valid_limit_still_works(client, mock_state, auth_headers):
+    """GET /graph/snapshot?limit=10 must still succeed with a numeric limit."""
+    response = client.get("/graph/snapshot?limit=10", headers=auth_headers)
+    # Graph DB is mocked and returns empty result sets, so we expect 200.
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "nodes" in data
+    assert "edges" in data
+
+
+def test_graph_snapshot_invalid_min_importance(client, mock_state, auth_headers):
+    """GET /graph/snapshot?min_importance=abc must return 400, not 500."""
+    response = client.get("/graph/snapshot?min_importance=abc", headers=auth_headers)
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "min_importance" in data.get("description", data.get("message", "")).lower()
+
+
 @pytest.mark.usefixtures("mock_state")
 def test_recall_with_tags_and_exclude_tags_combined(client, auth_headers):
     """Test combining tags filter with exclude_tags."""

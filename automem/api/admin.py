@@ -212,7 +212,7 @@ def create_admin_blueprint_full(
                     )
 
             except Exception as e:
-                logger.error(f"Failed to process batch starting at index {i}: {e}")
+                logger.error("Failed to process batch starting at index %s: %s", i, e)
                 failed += len(batch)
                 failed_ids.extend([mem["id"] for mem in batch])
 
@@ -383,10 +383,10 @@ def create_admin_blueprint_full(
                 if points:
                     qdrant_client.upsert(collection_name=collection_name, points=points)
                     synced += len(points)
-                    logger.info(f"Synced batch of {len(points)} missing memories to Qdrant")
+                    logger.info("Synced batch of %s missing memories to Qdrant", len(points))
 
             except Exception as e:
-                logger.error(f"Failed to sync batch starting at index {i}: {e}")
+                logger.error("Failed to sync batch starting at index %s: %s", i, e)
                 failed += len(batch)
                 failed_ids_list.extend([mem["id"] for mem in batch])
 
