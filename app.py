@@ -29,6 +29,8 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from falkordb import FalkorDB
 from flask import Blueprint, Flask, abort, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from qdrant_client import QdrantClient
 from qdrant_client import models as qdrant_models
 
@@ -113,6 +115,26 @@ except Exception:
 
 app = Flask(__name__)
 
+# ---------------------------------------------------------------------------
+# Rate limiting (M-4)
+# ---------------------------------------------------------------------------
+# flask-limiter protects the API from abuse.  Limits are configurable via
+# environment variables so they can be tuned per deployment without code
+# changes.  Rate limiting is disabled entirely in test environments via the
+# RATELIMIT_ENABLED Flask config key (set to False in conftest.py).
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_ENABLED = os.environ.get("RATELIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
+_RATE_LIMIT_DEFAULT = os.environ.get("RATE_LIMIT_DEFAULT", "1000 per hour")
+
+app.config.setdefault("RATELIMIT_ENABLED", _RATE_LIMIT_ENABLED)
+app.config.setdefault("RATELIMIT_STORAGE_URI", "memory://")
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[_RATE_LIMIT_DEFAULT],
+    storage_uri=app.config["RATELIMIT_STORAGE_URI"],
+)
 
 # Import canonical configuration constants
 from automem.config import (

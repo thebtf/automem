@@ -145,6 +145,26 @@ if "openai" not in sys.modules:
     _install_openai_stub()
 
 
+# ---------------------------------------------------------------------------
+# Disable rate limiting for all tests.
+#
+# flask-limiter reads RATELIMIT_ENABLED from the Flask app config.  Setting it
+# to False before any test runs ensures no test is rejected with HTTP 429,
+# regardless of how many times the same endpoint is called within a single
+# test session.
+# ---------------------------------------------------------------------------
+import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _disable_rate_limiting():
+    """Disable flask-limiter for the entire test session."""
+    import app as _app_module  # noqa: F401 — imported for side-effect of setting config
+
+    _app_module.app.config["RATELIMIT_ENABLED"] = False
+    yield
+
+
 def pytest_report_header(config):  # pragma: no cover - cosmetic output
     msgs = []
     if not os.getenv("AUTOMEM_RUN_INTEGRATION_TESTS"):
