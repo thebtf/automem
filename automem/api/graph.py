@@ -70,7 +70,10 @@ def create_graph_blueprint(
         """
         query_start = time.perf_counter()
 
-        limit = min(int(request.args.get("limit", 500)), 2000)
+        try:
+            limit = min(int(request.args.get("limit", 500)), 2000)
+        except ValueError:
+            abort(400, description="'limit' must be a valid integer")
         min_importance = float(request.args.get("min_importance", 0.0))
         types_filter = (
             request.args.get("types", "").split(",") if request.args.get("types") else None
@@ -216,9 +219,15 @@ def create_graph_blueprint(
         """
         query_start = time.perf_counter()
 
-        depth = min(int(request.args.get("depth", 1)), 3)
+        try:
+            depth = min(int(request.args.get("depth", 1)), 3)
+        except ValueError:
+            abort(400, description="'depth' must be a valid integer")
         include_semantic = request.args.get("include_semantic", "true").lower() == "true"
-        semantic_limit = min(int(request.args.get("semantic_limit", 5)), 20)
+        try:
+            semantic_limit = min(int(request.args.get("semantic_limit", 5)), 20)
+        except ValueError:
+            abort(400, description="'semantic_limit' must be a valid integer")
 
         graph = get_memory_graph()
         if graph is None:

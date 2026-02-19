@@ -104,6 +104,7 @@ def create_stream_blueprint(
     @bp.route("/stream/status", methods=["GET"])
     def stream_status() -> Any:
         """Return SSE stream status (subscriber count)."""
+        require_api_token()
         from flask import jsonify
 
         return jsonify(
