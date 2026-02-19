@@ -14,9 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create non-root user for security
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+
 # Copy application files
-COPY scripts/health_monitor.py scripts/
-COPY scripts/recover_from_qdrant.py scripts/
+COPY --chown=appuser:appgroup scripts/health_monitor.py scripts/
+COPY --chown=appuser:appgroup scripts/recover_from_qdrant.py scripts/
+
+USER appuser
 
 # Run health monitor (alert-only mode by default for safety)
 # Override with --auto-recover if you want automatic recovery

@@ -136,6 +136,23 @@ limiter = Limiter(
     storage_uri=app.config["RATELIMIT_STORAGE_URI"],
 )
 
+
+# ---------------------------------------------------------------------------
+# Security headers (H-3)
+# ---------------------------------------------------------------------------
+# Applied to every response. Prevents common web attacks regardless of client.
+# ---------------------------------------------------------------------------
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault(
+        "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
+    )
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
 # Import canonical configuration constants
 from automem.config import (
     ADMIN_TOKEN,
