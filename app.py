@@ -3208,9 +3208,12 @@ def create_association() -> Any:
                 relationship_props[prop] = payload[prop]
 
     # Build the SET clause dynamically
+    # SECURITY: keys in relationship_props are hardcoded string literals (strength, updated_at,
+    # and type-specific property names from RELATIONSHIP_TYPES config) — safe to interpolate into SET clause
     set_clauses = [f"r.{key} = ${key}" for key in relationship_props]
     set_clause = ", ".join(set_clauses)
 
+    # SECURITY: relation_type is validated against ALLOWED_RELATIONS allowlist above — safe to interpolate
     try:
         result = graph.query(
             f"""

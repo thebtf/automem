@@ -243,6 +243,7 @@ def create_graph_blueprint(
         center_node = serialize_node(center_result.result_set[0][0])
 
         # Get graph neighbors up to depth
+        # SECURITY: depth is bounded by min(int(...), 3) above — safe to interpolate, cannot exceed 3
         neighbor_query = f"""
             MATCH path = (m:Memory {{id: $id}})-[*1..{depth}]-(n:Memory)
             WHERE n.id <> $id
