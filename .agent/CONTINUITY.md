@@ -1,7 +1,7 @@
 # Continuity State
 
 **Last Updated:** 2026-02-19
-**Session:** Post Phase 2 — Security audit follow-up complete
+**Session:** Security hardening complete — PR #3 open, PUID/PGID added
 
 ## Current Goal
 
@@ -82,6 +82,12 @@ See .agent/TECHNICAL_DEBT.md:
 - bcb6340: feat(security): add global rate limiting via flask-limiter (M-4)
 - 6be22b7: perf(logging): convert f-string logger calls to lazy %s format (M-1)
 - 68e5947: fix(security): harden Docker images, tokens, and add security headers
+- e60af07: feat(docker): add PUID/PGID support via gosu entrypoint (Unraid/NAS)
+
+## PR
+
+- **PR #3**: https://github.com/thebtf/automem/pull/3 — all 28 commits vs upstream, open for review
+- Base branch: `review-base` (merge-base with upstream/main at ba1308a)
 
 ## Working Set
 
