@@ -11,14 +11,20 @@ RUN npm ci --only=production
 # Copy application code
 COPY server.js ./
 
-# Create non-root user for security
+# Install gosu for PUID/PGID privilege-drop entrypoint
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user — UID/GID are remapped at runtime via PUID/PGID env vars
 RUN groupadd --gid 1001 appgroup && \
-    useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser && \
-    chown -R appuser:appgroup /app
+    useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+
+# Entrypoint handles PUID/PGID remapping and privilege drop
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Railway injects PORT automatically
 EXPOSE 8080
 
-USER appuser
-
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "server.js"]

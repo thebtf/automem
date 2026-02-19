@@ -41,20 +41,26 @@ WORKDIR /app
 # Install ONLY runtime dependencies (NOT build-essential)
 # libgomp1: Required by onnxruntime and some numpy operations
 # curl: For health checks
+# gosu: Privilege-drop helper for PUID/PGID entrypoint
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder (includes all Python packages)
 COPY --from=builder /opt/venv /opt/venv
 
-# Create non-root user for security
+# Create non-root user — UID/GID are remapped at runtime via PUID/PGID env vars
 RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
 
-# Copy application code
-COPY --chown=appuser:appgroup . .
+# Copy application code (root-owned, world-readable — entrypoint runs as PUID)
+COPY . .
+
+# Entrypoint handles PUID/PGID remapping and privilege drop
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
@@ -62,6 +68,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 EXPOSE 8001
 
-USER appuser
-
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "app.py"]

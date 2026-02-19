@@ -34,6 +34,10 @@ services:
     ports:
       - "8001:8001" # Flask API
     environment:
+      # PUID/PGID: set to match your host user (e.g. from `id -u` / `id -g`)
+      # Required on Unraid and other NAS systems to avoid permission issues on bind mounts.
+      PUID: ${PUID:-1001}
+      PGID: ${PGID:-1001}
       FLASK_ENV: development
       FLASK_DEBUG: "1"
       PORT: 8001
