@@ -91,15 +91,16 @@ class AutoMemRestore:
 
     def restore_falkordb(self, backup_file: Path) -> Dict[str, Any]:
         """Restore FalkorDB graph from JSON backup."""
-        logger.info(f"📊 Restoring FalkorDB from {backup_file.name}...")
+        logger.info("📊 Restoring FalkorDB from %s...", backup_file.name)
 
         # Load backup data
         with gzip.open(backup_file, "rt", encoding="utf-8") as f:
             backup_data = json.load(f)
 
         logger.info(
-            f"   Backup contains {len(backup_data['nodes'])} nodes, "
-            f"{len(backup_data['relationships'])} relationships"
+            "   Backup contains %s nodes, %s relationships",
+            len(backup_data["nodes"]),
+            len(backup_data["relationships"]),
         )
 
         if self.dry_run:
@@ -126,12 +127,15 @@ class AutoMemRestore:
         if existing_nodes > 0:
             if self.merge:
                 logger.info(
-                    f"📥 Import mode: Graph '{FALKORDB_GRAPH}' contains "
-                    f"{existing_nodes} existing nodes - will merge with backup"
+                    "📥 Import mode: Graph '%s' contains %s existing nodes - will merge with backup",
+                    FALKORDB_GRAPH,
+                    existing_nodes,
                 )
             else:
                 logger.warning(
-                    f"⚠️  Graph '{FALKORDB_GRAPH}' contains {existing_nodes} existing nodes!"
+                    "⚠️  Graph '%s' contains %s existing nodes!",
+                    FALKORDB_GRAPH,
+                    existing_nodes,
                 )
                 if not self.force:
                     response = input("   Delete existing data and restore? [y/N]: ")
@@ -146,7 +150,7 @@ class AutoMemRestore:
                 graph.query("MATCH (n) DETACH DELETE n")
 
         # Restore nodes
-        logger.info(f"   📥 Restoring {len(backup_data['nodes'])} nodes...")
+        logger.info("   📥 Restoring %s nodes...", len(backup_data["nodes"]))
         node_backup_id_to_props = {}  # Map backup IDs to properties
         nodes_created = 0
         nodes_skipped = 0
@@ -163,7 +167,7 @@ class AutoMemRestore:
 
         for i, node in enumerate(backup_data["nodes"]):
             if i % 100 == 0:
-                logger.info(f"      Progress: {i}/{len(backup_data['nodes'])}")
+                logger.info("      Progress: %s/%s", i, len(backup_data["nodes"]))
 
             labels = ":".join(node["labels"])
             props = node["properties"].copy()
@@ -207,16 +211,18 @@ class AutoMemRestore:
                 nodes_created += 1
             except Exception as e:
                 if i < 5 or i % 100 == 0:  # Log first 5 and every 100th error
-                    logger.warning(f"      Error creating node {i}: {e}")
+                    logger.warning("      Error creating node %s: %s", i, e)
                 continue
 
         logger.info(
-            f"   ✅ Restored {nodes_created}/{len(backup_data['nodes'])} nodes"
-            + (f" (skipped {nodes_skipped} existing)" if nodes_skipped > 0 else "")
+            "   ✅ Restored %s/%s nodes%s",
+            nodes_created,
+            len(backup_data["nodes"]),
+            f" (skipped {nodes_skipped} existing)" if nodes_skipped > 0 else "",
         )
 
         # Restore relationships using UUID matching
-        logger.info(f"   📥 Restoring {len(backup_data['relationships'])} relationships...")
+        logger.info("   📥 Restoring %s relationships...", len(backup_data["relationships"]))
         rel_created = 0
         rel_skipped = 0
 
@@ -237,7 +243,7 @@ class AutoMemRestore:
 
         for i, rel in enumerate(backup_data["relationships"]):
             if i % 100 == 0:
-                logger.info(f"      Progress: {i}/{len(backup_data['relationships'])}")
+                logger.info("      Progress: %s/%s", i, len(backup_data["relationships"]))
 
             # Get source and target node IDs from backup
             source_backup_id = rel["source_id"]
@@ -247,7 +253,7 @@ class AutoMemRestore:
                 source_backup_id not in node_backup_id_to_props
                 or target_backup_id not in node_backup_id_to_props
             ):
-                logger.warning(f"      Skipping relationship {rel['type']} - missing node IDs")
+                logger.warning("      Skipping relationship %s - missing node IDs", rel["type"])
                 continue
 
             source_labels, source_props = node_backup_id_to_props[source_backup_id]
@@ -304,12 +310,14 @@ class AutoMemRestore:
                 graph.query(query)
                 rel_created += 1
             except Exception as e:
-                logger.debug(f"      Skipped relationship {rel['type']}: {e}")
+                logger.debug("      Skipped relationship %s: %s", rel["type"], e)
                 continue
 
         logger.info(
-            f"   ✅ Restored {rel_created}/{len(backup_data['relationships'])} relationships"
-            + (f" (skipped {rel_skipped} existing)" if rel_skipped > 0 else "")
+            "   ✅ Restored %s/%s relationships%s",
+            rel_created,
+            len(backup_data["relationships"]),
+            f" (skipped {rel_skipped} existing)" if rel_skipped > 0 else "",
         )
 
         return {
@@ -325,13 +333,13 @@ class AutoMemRestore:
 
     def restore_qdrant(self, backup_file: Path) -> Dict[str, Any]:
         """Restore Qdrant collection from JSON backup."""
-        logger.info(f"🔍 Restoring Qdrant from {backup_file.name}...")
+        logger.info("🔍 Restoring Qdrant from %s...", backup_file.name)
 
         # Load backup data
         with gzip.open(backup_file, "rt", encoding="utf-8") as f:
             backup_data = json.load(f)
 
-        logger.info(f"   Backup contains {len(backup_data['points'])} points")
+        logger.info("   Backup contains %s points", len(backup_data["points"]))
 
         if self.dry_run:
             logger.info("   [DRY RUN] Would restore to Qdrant")
@@ -347,13 +355,15 @@ class AutoMemRestore:
 
             if self.merge:
                 logger.info(
-                    f"📥 Import mode: Collection '{QDRANT_COLLECTION}' contains "
-                    f"{existing_points} existing points - will merge with backup"
+                    "📥 Import mode: Collection '%s' contains %s existing points - will merge with backup",
+                    QDRANT_COLLECTION,
+                    existing_points,
                 )
             else:
                 logger.warning(
-                    f"⚠️  Collection '{QDRANT_COLLECTION}' contains "
-                    f"{existing_points} existing points!"
+                    "⚠️  Collection '%s' contains %s existing points!",
+                    QDRANT_COLLECTION,
+                    existing_points,
                 )
                 if not self.force:
                     response = input("   Delete existing points and restore? [y/N]: ")
@@ -378,7 +388,7 @@ class AutoMemRestore:
                     ),
                 )
         except Exception as e:
-            logger.info(f"   Creating new collection (previous: {e})")
+            logger.info("   Creating new collection (previous: %s)", e)
             from qdrant_client.models import Distance, VectorParams
 
             client.create_collection(
@@ -389,12 +399,12 @@ class AutoMemRestore:
             )
 
         # Restore points in batches
-        logger.info(f"   📥 Restoring {len(backup_data['points'])} points...")
+        logger.info("   📥 Restoring %s points...", len(backup_data["points"]))
         batch_size = 100
 
         for i in range(0, len(backup_data["points"]), batch_size):
             batch = backup_data["points"][i : i + batch_size]
-            logger.info(f"      Progress: {i}/{len(backup_data['points'])}")
+            logger.info("      Progress: %s/%s", i, len(backup_data["points"]))
 
             points = [
                 PointStruct(id=point["id"], vector=point["vector"], payload=point["payload"])
@@ -404,7 +414,7 @@ class AutoMemRestore:
             client.upsert(collection_name=QDRANT_COLLECTION, points=points)
 
         points_count = len(backup_data["points"])
-        logger.info(f"   ✅ Restored {points_count} points (upserted - existing updated)")
+        logger.info("   ✅ Restored %s points (upserted - existing updated)", points_count)
 
         return {
             "points": len(backup_data["points"]),
@@ -446,7 +456,7 @@ class AutoMemRestore:
             return results
 
         except Exception as e:
-            logger.error(f"❌ Restore failed: {e}")
+            logger.error("❌ Restore failed: %s", e)
             raise
 
 
@@ -526,7 +536,7 @@ Examples:
         print(json.dumps(results, indent=2))
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Restore failed: {e}")
+        logger.error("Restore failed: %s", e)
         sys.exit(1)
 
 

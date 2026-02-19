@@ -524,7 +524,7 @@ def create_memory_blueprint_full(
 
                         selector = http_models.PointIdsList(points=[memory_id])
                     except Exception as e:
-                        logger.warning(f"Failed to import qdrant_client.http.models: {e}")
+                        logger.warning("Failed to import qdrant_client.http.models: %s", e)
                 qdrant_client.delete(collection_name=collection_name, points_selector=selector)
             except Exception:
                 logger.exception("Failed to delete vector for memory %s", memory_id)

@@ -183,7 +183,7 @@ def create_graph_blueprint(
             )
 
             elapsed = time.perf_counter() - query_start
-            logger.info(f"graph/snapshot: {len(nodes)} nodes, {len(edges)} edges in {elapsed:.3f}s")
+            logger.info("graph/snapshot: %s nodes, %s edges in %.3fs", len(nodes), len(edges), elapsed)
 
             return jsonify(
                 {
@@ -349,7 +349,7 @@ def create_graph_blueprint(
                                     }
                                 )
                 except Exception as e:
-                    logger.warning(f"Semantic neighbor search failed: {e}")
+                    logger.warning("Semantic neighbor search failed: %s", e)
 
         elapsed = time.perf_counter() - query_start
 

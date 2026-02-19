@@ -35,3 +35,29 @@ deprecated endpoint. Single-user setup doesn't accumulate sessions.
 No session.lastAccess tracking currently added for SSE sessions (would need to be added).
 
 **Context:** `mcp-sse-server/server.js` lines 425-430 (sessions Map declaration).
+
+---
+
+## 2026-02-19: Per-endpoint rate limiting (M-4 follow-up)
+
+**What:** Rate limiting currently applies a single global default (1000/hour per IP).
+The remediation plan called for differentiated limits: write endpoints (100/h),
+read endpoints (500/h), admin endpoints (20/h). These could not be applied because
+all routes are defined inside blueprint factory closures (dependency injection pattern),
+and flask-limiter's `@limiter.limit()` decorator cannot be applied post-registration.
+
+**Why deferred:** Global 1000/hour limit still provides meaningful protection against
+abuse. Per-endpoint limits require either: (a) injecting `limiter` into all 8 blueprint
+factories, or (b) using flask-limiter's `request_filter` approach with URL inspection.
+Risk of introducing bugs across 8 factories is non-trivial.
+
+**Impact if not done:** Admin endpoints (/admin/reembed, /admin/sync) and write endpoints
+(/memory POST, /associate POST) are somewhat easier to abuse than with per-endpoint limits.
+Still protected by auth token requirement.
+
+**Effort when ready:** Medium value, medium risk. Requires adding `limiter` parameter to
+all blueprint factory functions or switching to URL-based filter approach.
+
+**Context:** `app.py` (Limiter setup, lines ~115-140), `automem/api/` (8 blueprint factories).
+Env vars RATE_LIMIT_WRITE_ENDPOINTS, RATE_LIMIT_READ_ENDPOINTS, RATE_LIMIT_ADMIN_ENDPOINTS
+are available but unused — ready for when the refactoring happens.
